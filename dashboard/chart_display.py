@@ -5,6 +5,8 @@ rendering to the sub-modules in ``dashboard/charts/``.
 """
 
 import time
+import numpy as np
+import pandas as pd
 import streamlit as st
 from advanced_charts import DynamicChartGenerator
 
