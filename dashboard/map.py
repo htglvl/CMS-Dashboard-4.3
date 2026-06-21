@@ -230,7 +230,7 @@ def create_advanced_map(
             tooltip=f"{site['charge_point_location']} ({site['site_category']})"
         ).add_to(chargepoint_group)
 
-        # Add 2-mile buffer visualization
+        # Add 2-mile buffer visualization (click-through)
         if show_buffers:
             folium.Circle(
                 location=[site['latitude'], site['longitude']],
@@ -241,7 +241,7 @@ def create_advanced_map(
                 fillOpacity=0.08,
                 weight=1,
                 dash_array='5, 5',
-                tooltip=f"2-mile buffer: {site['charge_point_location']}"
+                interactive=False,  # Click-through - doesn't block markers
             ).add_to(chargepoint_group)
 
     if chargepoint_group is not None:

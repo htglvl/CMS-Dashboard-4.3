@@ -265,6 +265,7 @@ def main():
         )
         t_render = _ts("st_folium render", t_render)
 
+        # Process click immediately
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
@@ -307,11 +308,11 @@ def main():
                 st.session_state.pin_lat = clicked_lat
                 st.session_state.pin_lng = clicked_lng
 
-        # Show selected site if exists
+        # Show selected site if exists (pin already shows on map above)
         if st.session_state.get("selected_site"):
             st.success(f"**{st.session_state.selected_site}**")
 
-            # Show advanced charts
+            # Show advanced charts (pin already visible)
             display_dynamic_charts(
                 st.session_state.selected_site,
                 data["charging_sites"], data["filtered_outages"],
