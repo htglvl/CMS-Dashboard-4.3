@@ -75,6 +75,12 @@ def render_sidebar(charging_sites, outages):
         default=charging_sites['site_category'].unique()
     )
 
+    # Map filter options
+    st.sidebar.subheader("Map Filter")
+    show_chargepoints = st.sidebar.checkbox("Show chargepoint markers", value=True)
+    show_buffers = st.sidebar.checkbox("Show 2-mile buffer zones", value=True)
+    show_heatmap = st.sidebar.checkbox("Show outage heatmap", value=True)
+
     # Statistical filtering
     st.sidebar.subheader("Statistical Filters")
     use_iqr_filter = st.sidebar.checkbox("Apply IQR outlier removal", value=True)
@@ -89,12 +95,6 @@ def render_sidebar(charging_sites, outages):
         "Significance threshold (quantile)", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
         help="Select the minimum quantile for high-impact outages. 0.5 corresponds to the median."
     )
-
-    # Map view
-    st.sidebar.subheader("Map View")
-    show_chargepoints = st.sidebar.checkbox("Show chargepoint markers", value=True)
-    show_buffers = st.sidebar.checkbox("Show 2-mile buffer zones", value=True)
-    show_heatmap = st.sidebar.checkbox("Show outage heatmap", value=True)
 
     # Auto-refresh
     st.sidebar.subheader("Auto-Refresh")
