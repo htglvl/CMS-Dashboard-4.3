@@ -238,6 +238,13 @@ def main():
 
         # Create map fresh each time (Folium maps don't cache well with st_folium)
         t_map = time.time()
+
+        # Debug: Log pin coordinates
+        pin_lat = st.session_state.get("pin_lat")
+        pin_lng = st.session_state.get("pin_lng")
+        selected_site = st.session_state.get("selected_site")
+        print(f"[MAP CREATE] pin_lat={pin_lat}, pin_lng={pin_lng}, selected_site={selected_site}")
+
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
             show_chargepoints=filters["show_chargepoints"],
@@ -248,9 +255,9 @@ def main():
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
             risk_report=data["risk_report"],
-            clicked_lat=st.session_state.get("pin_lat"),
-            clicked_lng=st.session_state.get("pin_lng"),
-            clicked_site_name=st.session_state.get("selected_site"),
+            clicked_lat=pin_lat,
+            clicked_lng=pin_lng,
+            clicked_site_name=selected_site,
         )
         t_map = _ts("create_advanced_map", t_map)
 
