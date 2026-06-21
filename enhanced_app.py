@@ -282,20 +282,27 @@ def main():
             nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
             t_click = _ts("process click", t_click)
 
-            # Find nearest risk prediction
+            # Find nearest risk prediction using Haversine (same as risk_prediction.py)
             if data["risk_predictions"] is not None and not data["risk_predictions"].empty:
-                risk_dists = np.sqrt(
-                    (data["risk_predictions"]['lat'] - clicked_lat)**2 +
-                    (data["risk_predictions"]['lon'] - clicked_lng)**2
-                )
-                nearest_risk_idx = risk_dists.idxmin()
-                nearest_risk = data["risk_predictions"].loc[nearest_risk_idx]
+                # Haversine distance calculation
+                lat1 = np.radians(clicked_lat)
+                lon1 = np.radians(clicked_lng)
+                lat2 = np.radians(data["risk_predictions"]['lat'].values)
+                lon2 = np.radians(data["risk_predictions"]['lon'].values)
+                dlat = lat2 - lat1
+                dlon = lon2 - lon1
+                a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+                risk_dists_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
+
+                nearest_risk_idx = risk_dists_km.argmin()
+                nearest_risk = data["risk_predictions"].iloc[nearest_risk_idx]
                 st.session_state.clicked_risk = {
                     'risk_level': nearest_risk['risk_level'],
                     'confidence': nearest_risk['confidence'],
                     'prob_high': nearest_risk.get('prob_high', 0),
                     'prob_medium': nearest_risk.get('prob_medium', 0),
                     'prob_low': nearest_risk.get('prob_low', 0),
+                    'distance_km': risk_dists_km[nearest_risk_idx],
                 }
             else:
                 st.session_state.clicked_risk = None
@@ -315,10 +322,11 @@ def main():
             if risk_info:
                 risk_color = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(risk_info['risk_level'], "⚪")
                 st.success(f"**{site_name}**")
+                dist_km = risk_info.get('distance_km', 0)
                 st.markdown(f"""
-                | Risk Level | Confidence | P(High) | P(Medium) | P(Low) |
-                |------------|------------|---------|-----------|--------|
-                | {risk_color} {risk_info['risk_level']} | {risk_info['confidence']:.0%} | {risk_info['prob_high']:.0%} | {risk_info['prob_medium']:.0%} | {risk_info['prob_low']:.0%} |
+                | Risk Level | Confidence | P(High) | P(Medium) | P(Low) | Nearest Grid |
+                |------------|------------|---------|-----------|--------|--------------|
+                | {risk_color} {risk_info['risk_level']} | {risk_info['confidence']:.0%} | {risk_info['prob_high']:.0%} | {risk_info['prob_medium']:.0%} | {risk_info['prob_low']:.0%} | {dist_km:.2f} km |
                 """)
             else:
                 st.success(f"**{site_name}**")
