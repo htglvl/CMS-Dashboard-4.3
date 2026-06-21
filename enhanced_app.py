@@ -273,54 +273,62 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
-            # Find nearest charging site (use temporary calculation, don't modify DataFrame)
-            site_distances = np.sqrt(
-                (data["charging_sites"]['latitude'].values - clicked_lat)**2 +
-                (data["charging_sites"]['longitude'].values - clicked_lng)**2
-            )
-            nearest_site_idx = np.argmin(site_distances)
-            nearest_site = data["charging_sites"].iloc[nearest_site_idx]
-            nearest_site_dist = site_distances[nearest_site_idx]
+            # Check if a marker was clicked by examining last_object_clicked
+            last_object = map_data.get('last_object_clicked')
+            clicked_on_marker = False
+            marker_info = None
 
-            # Find nearest live incident (use temporary calculation)
-            nearest_incident = None
-            nearest_incident_dist = float('inf')
-            if data["live_incidents"] is not None and not data["live_incidents"].empty:
-                incident_distances = np.sqrt(
-                    (data["live_incidents"]['latitude'].values - clicked_lat)**2 +
-                    (data["live_incidents"]['longitude'].values - clicked_lng)**2
-                )
-                nearest_incident_idx = np.argmin(incident_distances)
-                nearest_incident = data["live_incidents"].iloc[nearest_incident_idx]
-                nearest_incident_dist = incident_distances[nearest_incident_idx]
+            print(f"[MAP CLICK] last_object_clicked: {last_object}")
 
-            # Log distances
-            print(f"[MAP CLICK] Nearest site: {nearest_site['charge_point_location']}, Distance: {nearest_site_dist:.6f}")
-            if nearest_incident is not None:
-                print(f"[MAP CLICK] Nearest incident: {nearest_incident.get('incident_num', 'N/A')}, Distance: {nearest_incident_dist:.6f}")
+            if last_object and isinstance(last_object, dict):
+                # Check if the object has properties (indicates a feature was clicked)
+                properties = last_object.get('properties', {})
+                if properties:
+                    clicked_on_marker = True
+                    marker_info = properties
+                    print(f"[MAP CLICK] Marker properties: {properties}")
 
-            # Determine what was clicked (within ~0.005 degrees ≈ 500m for better detection)
-            clicked_on_site = nearest_site_dist < 0.005
-            clicked_on_incident = nearest_incident is not None and nearest_incident_dist < 0.005
+            if clicked_on_marker and marker_info:
+                # A marker was clicked - extract info from popup/tooltip
+                tooltip = marker_info.get('tooltip', '')
+                popup = marker_info.get('popup', '')
 
-            if clicked_on_site:
-                # Clicked on charging site
-                st.session_state.selected_site = nearest_site['charge_point_location']
-                st.session_state.pin_lat = float(nearest_site['latitude'])
-                st.session_state.pin_lng = float(nearest_site['longitude'])
-                st.session_state.pin_type = 'site'
-                print(f"[MAP CLICK] Selected site: {nearest_site['charge_point_location']} at ({nearest_site['latitude']}, {nearest_site['longitude']})")
-            elif clicked_on_incident:
-                # Clicked on live incident
-                inc_num = nearest_incident.get('incident_num', 'Unknown')
-                inc_type = nearest_incident.get('incident_type', 'Unknown')
-                st.session_state.selected_site = f"🔴 Incident {inc_num} — {inc_type}"
-                st.session_state.pin_lat = float(nearest_incident['latitude'])
-                st.session_state.pin_lng = float(nearest_incident['longitude'])
-                st.session_state.pin_type = 'incident'
-                print(f"[MAP CLICK] Selected incident: {inc_num}")
+                print(f"[MAP CLICK] Tooltip: {tooltip}")
+                print(f"[MAP CLICK] Popup: {popup}")
+
+                # Check if it's a charging site (tooltip has format "Site Name (Category)")
+                if tooltip and '(' in tooltip and ')' in tooltip:
+                    site_name = tooltip.split(' (')[0]
+                    # Find the site in charging_sites
+                    site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == site_name]
+                    if not site_match.empty:
+                        site = site_match.iloc[0]
+                        st.session_state.selected_site = site_name
+                        st.session_state.pin_lat = float(site['latitude'])
+                        st.session_state.pin_lng = float(site['longitude'])
+                        st.session_state.pin_type = 'site'
+                        print(f"[MAP CLICK] Selected site: {site_name}")
+
+                # Check if it's a live incident (popup has "🔴" or "INC")
+                elif popup and ('🔴' in popup or 'INC' in popup):
+                    # Extract incident info from popup
+                    import re
+                    inc_match = re.search(r'INC (\d+)', popup)
+                    if inc_match:
+                        inc_num = inc_match.group(1)
+                        # Find the incident in live_incidents
+                        if data["live_incidents"] is not None and not data["live_incidents"].empty:
+                            inc_match_df = data["live_incidents"][data["live_incidents"]['incident_num'].astype(str) == inc_num]
+                            if not inc_match_df.empty:
+                                inc = inc_match_df.iloc[0]
+                                inc_type = inc.get('incident_type', 'Unknown')
+                                st.session_state.selected_site = f"🔴 Incident {inc_num} — {inc_type}"
+                                st.session_state.pin_lat = float(inc['latitude'])
+                                st.session_state.pin_lng = float(inc['longitude'])
+                                st.session_state.pin_type = 'incident'
+                                print(f"[MAP CLICK] Selected incident: {inc_num}")
             else:
-                # Clicked elsewhere
+                # No marker clicked - use clicked coordinates
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
                 st.session_state.pin_lat = clicked_lat
                 st.session_state.pin_lng = clicked_lng
