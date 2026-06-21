@@ -126,7 +126,6 @@ def render_sidebar(charging_sites, outages):
         "Prediction model", options=["Random Forest", "XGBoost"], index=0,
         help="Random Forest is more explainable; XGBoost may be more accurate."
     )
-    show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap on map", value=True)
 
     return {
         "years": years,
@@ -145,7 +144,7 @@ def render_sidebar(charging_sites, outages):
         "live_refresh_min": live_refresh_min,
         "live_refresh_label": live_refresh_label,
         "risk_model_choice": risk_model_choice,
-        "show_risk_heatmap": show_risk_heatmap,
+        "show_risk_heatmap": True,  # Always show risk heatmap
     }
 
 
