@@ -265,9 +265,14 @@ def main():
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked"],
+            returned_objects=["last_clicked", "last_object_clicked"],
             key="main_map",
         )
+
+        # Check if a marker was clicked
+        if map_data.get('last_object_clicked'):
+            print("[CLICK] Clicked on a marker!")
+            print(f"[CLICK] Object: {map_data['last_object_clicked']}")
 
         # Store click coordinates and rerun to show pin
         if map_data.get('last_clicked'):
