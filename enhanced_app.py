@@ -265,51 +265,37 @@ def main():
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked", "last_object_clicked"],
+            returned_objects=["last_clicked"],
             key="main_map",
         )
 
-        # Check if a marker was clicked
-        last_object = map_data.get('last_object_clicked')
-        clicked_on_marker = False
-        clicked_site_name = None
-
-        if last_object and isinstance(last_object, dict):
-            properties = last_object.get('properties', {})
-            tooltip = properties.get('tooltip', '')
-            print(f"[CLICK] Marker tooltip: {tooltip}")
-
-            # Check if it's a chargepoint (tooltip has format "Site Name (Category)")
-            if tooltip and '(' in tooltip and ')' in tooltip:
-                clicked_on_marker = True
-                clicked_site_name = tooltip.split(' (')[0]
-                print(f"[CLICK] Clicked on chargepoint: {clicked_site_name}")
-
-        # Store click coordinates and rerun to show pin
+        # Process click
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
 
-            if clicked_on_marker and clicked_site_name:
-                # Find the site and use its coordinates
-                site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == clicked_site_name]
-                if not site_match.empty:
-                    site = site_match.iloc[0]
-                    st.session_state.pin_lat = float(site['latitude'])
-                    st.session_state.pin_lng = float(site['longitude'])
-                    st.session_state.selected_site = clicked_site_name
-                    print(f"[CLICK] Pin at site: {clicked_site_name} ({site['latitude']}, {site['longitude']})")
-                else:
-                    st.session_state.pin_lat = clicked_lat
-                    st.session_state.pin_lng = clicked_lng
-                    st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+            # Find nearest charging site
+            site_distances = np.sqrt(
+                (data["charging_sites"]['latitude'].values - clicked_lat)**2 +
+                (data["charging_sites"]['longitude'].values - clicked_lng)**2
+            )
+            nearest_idx = np.argmin(site_distances)
+            nearest_site = data["charging_sites"].iloc[nearest_idx]
+            nearest_dist = site_distances[nearest_idx]
+
+            # If very close to a site (< 0.001 degrees ~ 100m), use site name
+            if nearest_dist < 0.001:
+                st.session_state.pin_lat = float(nearest_site['latitude'])
+                st.session_state.pin_lng = float(nearest_site['longitude'])
+                st.session_state.selected_site = nearest_site['charge_point_location']
+                print(f"[CLICK] Chargepoint: {nearest_site['charge_point_location']}")
             else:
-                # Custom location
                 st.session_state.pin_lat = clicked_lat
                 st.session_state.pin_lng = clicked_lng
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                print(f"[CLICK] Location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
 
-            st.rerun()  # Must rerun to show pin on map
+            st.rerun()
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
