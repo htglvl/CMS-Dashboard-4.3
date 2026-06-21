@@ -5,6 +5,9 @@ import streamlit as st
 
 def render_frequency_timeline(chart_generator, site_outages, site_name):
     """Render two side-by-side line charts with help tooltips."""
+    # Sanitize site_name for use as key
+    safe_key = "".join(c for c in str(site_name) if c.isalnum())[:20]
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -15,7 +18,7 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows how often outages happen over time and whether they're getting more frequent.",
         )
         freq_chart = chart_generator.create_frequency_timeline(site_outages, site_name)
-        st.plotly_chart(freq_chart, use_container_width=True)
+        st.plotly_chart(freq_chart, use_container_width=True, key=f"freq_{safe_key}")
 
     with col2:
         st.caption(
@@ -24,4 +27,4 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows the trend of impact severity over time.",
         )
         hours_chart = chart_generator.create_customer_hours_timeline(site_outages, site_name)
-        st.plotly_chart(hours_chart, use_container_width=True)
+        st.plotly_chart(hours_chart, use_container_width=True, key=f"hours_{safe_key}")
