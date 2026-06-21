@@ -272,16 +272,16 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
-            # Find nearest charging site
+            # Check if click is on a charging site dot (small threshold ~100m)
             data["charging_sites"]['distance'] = np.sqrt(
                 (data["charging_sites"]['latitude'] - clicked_lat)**2 +
                 (data["charging_sites"]['longitude'] - clicked_lng)**2
             )
             nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
-            is_on_site = nearest_site['distance'] < 0.01  # ~1km threshold
+            is_on_dot = nearest_site['distance'] < 0.001  # ~100m threshold for clicking on dot
 
             # Set display name and coordinates
-            if is_on_site:
+            if is_on_dot:
                 st.session_state.selected_site = nearest_site['charge_point_location']
                 st.session_state.pin_lat = nearest_site['latitude']
                 st.session_state.pin_lng = nearest_site['longitude']
