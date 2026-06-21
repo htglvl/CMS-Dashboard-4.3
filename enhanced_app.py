@@ -151,6 +151,14 @@ def main():
     t_main = time.time()
     print("\n=== Dashboard main() ===")
 
+    # Initialize session state for pin
+    if "pin_lat" not in st.session_state:
+        st.session_state.pin_lat = None
+    if "pin_lng" not in st.session_state:
+        st.session_state.pin_lng = None
+    if "selected_site" not in st.session_state:
+        st.session_state.selected_site = None
+
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
     # ── Dataset selection (sidebar) ───────────────────────────────────────
