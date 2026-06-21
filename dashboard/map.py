@@ -80,6 +80,9 @@ def create_advanced_map(
     risk_predictions=None,
     show_risk_heatmap: bool = False,
     risk_report=None,
+    clicked_lat=None,
+    clicked_lng=None,
+    clicked_site_name=None,
 ):
     """
     Create an advanced interactive map with enhanced features.
@@ -461,6 +464,16 @@ def create_advanced_map(
                 popup=folium.Popup(popup_html, max_width=300),
             ).add_to(live_group)
         live_group.add_to(m)
+
+    # Add pin marker for clicked location
+    if clicked_lat is not None and clicked_lng is not None:
+        pin_label = clicked_site_name if clicked_site_name else "📍 Clicked Location"
+        folium.Marker(
+            location=[clicked_lat, clicked_lng],
+            popup=folium.Popup(f"<b>{pin_label}</b><br>📍 {clicked_lat:.4f}, {clicked_lng:.4f}", max_width=250),
+            tooltip=pin_label,
+            icon=folium.Icon(color="red", icon="map-pin", prefix="fa")
+        ).add_to(m)
 
     # Add layer control
     folium.LayerControl().add_to(m)

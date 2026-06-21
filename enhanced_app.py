@@ -248,6 +248,9 @@ def main():
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
             risk_report=data["risk_report"],
+            clicked_lat=st.session_state.get("clicked_lat"),
+            clicked_lng=st.session_state.get("clicked_lng"),
+            clicked_site_name=st.session_state.get("selected_site"),
         )
         t_map = _ts("create_advanced_map", t_map)
 
@@ -328,21 +331,8 @@ def main():
 
         # Show selected site if exists
         if st.session_state.get("selected_site"):
-            # Display site name and risk info
             site_name = st.session_state.selected_site
-            risk_info = st.session_state.get("clicked_risk")
-
-            if risk_info:
-                risk_color = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(risk_info['risk_level'], "⚪")
-                st.success(f"**{site_name}**")
-                dist_km = risk_info.get('distance_km', 0)
-                st.markdown(f"""
-                | Risk Level | Confidence | P(High) | P(Medium) | P(Low) | Nearest Grid |
-                |------------|------------|---------|-----------|--------|--------------|
-                | {risk_color} {risk_info['risk_level']} | {risk_info['confidence']:.0%} | {risk_info['prob_high']:.0%} | {risk_info['prob_medium']:.0%} | {risk_info['prob_low']:.0%} | {dist_km:.2f} km |
-                """)
-            else:
-                st.success(f"**{site_name}**")
+            st.success(f"**{site_name}**")
 
             # Show loading spinner only for the charts section
             t_charts = time.time()
@@ -351,7 +341,7 @@ def main():
                 with st.spinner("📊 Loading analysis..."):
                     # Pass coordinates based on whether we're in buffer zone or not
                     if st.session_state.get("use_site_coords", True):
-                        # Inside buffer zone - use charging site coordinates (None = use site_info)
+                        # Inside buffer zone - use charging site coordinates
                         display_dynamic_charts(
                             st.session_state.selected_site,
                             data["charging_sites"], data["filtered_outages"],

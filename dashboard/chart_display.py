@@ -90,10 +90,7 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
     ])
 
     with tab1:
-        if not is_custom_location:
-            render_frequency_timeline(chart_generator, site_outages, site_name)
-        else:
-            st.info("Frequency timeline not available for custom locations.")
+        render_frequency_timeline(chart_generator, site_outages, site_name)
         t0 = _ts("Tab 1: Frequency Timeline", t0)
 
     with tab2:
@@ -101,10 +98,7 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
         t0 = _ts("Tab 2: Customer Impact", t0)
 
     with tab3:
-        if not is_custom_location:
-            render_risk_assessment(chart_generator, site_name)
-        else:
-            st.info("Risk assessment not available for custom locations. See risk prediction below.")
+        render_risk_assessment(chart_generator, site_name)
         t0 = _ts("Tab 3: Risk Assessment", t0)
 
     with tab4:
