@@ -407,7 +407,7 @@ def create_advanced_map(
                 popup_html = f"""
                 <div style="font-family: Arial; width: 280px; padding: 10px;">
                     <h4 style="color: {color}; margin: 0 0 10px 0;">
-                        🤖 {rec.title}
+                        {rec.title}
                     </h4>
                     <hr style="margin: 5px 0;">
                     <p style="margin: 5px 0;"><strong>Priority:</strong> {rec.priority}</p>
@@ -426,7 +426,7 @@ def create_advanced_map(
                 folium.Marker(
                     location=[lat, lon],
                     popup=folium.Popup(popup_html, max_width=300),
-                    tooltip=f"🤖 {rec.title}",
+                    tooltip=f"{rec.title}",
                     icon=folium.Icon(
                         color="red" if rec.priority == "Critical" else "orange",
                         icon="star",

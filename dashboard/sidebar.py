@@ -97,7 +97,7 @@ def render_sidebar(charging_sites, outages):
         "Weekly": 10080, "Monthly": 43200,
     }
     refresh_label = st.sidebar.selectbox(
-        "Data refresh interval", options=list(refresh_options.keys()), index=1,
+        "Data refresh interval", options=list(refresh_options.keys()), index=2,
         help="How often to fetch new outage data from the ENW API and refresh the page."
     )
     refresh_interval_min = refresh_options[refresh_label]
@@ -108,7 +108,7 @@ def render_sidebar(charging_sites, outages):
         "2 hours": 120, "Disabled": None,
     }
     live_refresh_label = st.sidebar.selectbox(
-        "Live incidents refresh", options=list(live_refresh_options.keys()), index=1,
+        "Live incidents refresh", options=list(live_refresh_options.keys()), index=0,
         help="How often to check for new live incidents. Select 'Disabled' to hide."
     )
     live_refresh_min = live_refresh_options[live_refresh_label]
@@ -176,6 +176,16 @@ def maybe_fetch_outage_data(refresh_interval_min):
                     st.toast(f"Fetched {result['fetched']:,} new outage records.", icon="⚡")
                     from enhanced_app import load_data
                     load_data.clear()
+                    # Retrain models with new data
+                    fetch_status.caption("🔄 Retraining risk models...")
+                    try:
+                        from advanced_charts.risk_model import _train_and_save, invalidate_features_cache
+                        invalidate_features_cache()
+                        _train_and_save()
+                        fetch_status.success(f"⚡ Fetched {result['fetched']:,} records — models retrained")
+                        st.toast("Risk models retrained with new data.", icon="🧠")
+                    except Exception as e:
+                        fetch_status.warning(f"⚠️ Fetched data but retraining failed: {e}")
                 else:
                     fetch_status.success("✔ Up to date")
                     st.toast("Outage data is already up to date.", icon="✔")

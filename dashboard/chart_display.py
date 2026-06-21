@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from advanced_charts import DynamicChartGenerator
+from advanced_charts.data import outages_within_radius
 
 from dashboard.charts.site_summary import render_site_summary
 from dashboard.charts.frequency_timeline import render_frequency_timeline
@@ -56,19 +57,8 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
             'longitude': clicked_lng,
             'site_category': 'Custom Location'
         })
-        # Find outages near clicked location
-        if not filtered_outages.empty:
-            out_lat = np.radians(filtered_outages['latitude'].values)
-            out_lon = np.radians(filtered_outages['longitude'].values)
-            click_lat_rad = np.radians(clicked_lat)
-            click_lon_rad = np.radians(clicked_lng)
-            dlat = out_lat - click_lat_rad
-            dlon = out_lon - click_lon_rad
-            a = np.sin(dlat / 2) ** 2 + np.cos(click_lat_rad) * np.cos(out_lat) * np.sin(dlon / 2) ** 2
-            distances_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
-            site_outages = filtered_outages[distances_km <= 3.218].copy()
-        else:
-            site_outages = pd.DataFrame()
+        # Find outages near clicked location (same 2-mile radius as chargepoints)
+        site_outages = outages_within_radius(filtered_outages, clicked_lat, clicked_lng)
     else:
         # Valid charging site
         t_inner = time.time()

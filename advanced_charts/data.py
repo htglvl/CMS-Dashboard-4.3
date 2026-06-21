@@ -21,6 +21,25 @@ CACHE_FILE = CACHE_DIR / "site_outage_cache.pkl"
 BUFFER_KM = 3.218  # 2 miles
 
 
+def outages_within_radius(outages_df, lat, lon, radius_km=BUFFER_KM):
+    """Return rows of *outages_df* within *radius_km* of (lat, lon).
+
+    Uses Haversine distance.  Returns a copy so callers can mutate safely.
+    """
+    if outages_df.empty:
+        return outages_df.copy()
+
+    out_lat = np.radians(outages_df['latitude'].values)
+    out_lon = np.radians(outages_df['longitude'].values)
+    lat0 = np.radians(lat)
+    lon0 = np.radians(lon)
+    dlat = out_lat - lat0
+    dlon = out_lon - lon0
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(out_lat) * np.sin(dlon / 2) ** 2
+    distances_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
+    return outages_df[distances_km <= radius_km].copy()
+
+
 def _scale(value, min_val, max_val):
     """Min-max scale value to 0-100. Returns 50 when range is zero."""
     return ((value - min_val) / (max_val - min_val) * 100) if max_val > min_val else 50.0
@@ -221,15 +240,8 @@ class SiteData:
             return self.outages.iloc[idx].copy(), site_info
 
         # Fallback: on-the-fly Haversine
-        lat0 = np.radians(site_info['latitude'])
-        lon0 = np.radians(site_info['longitude'])
-        out_lat = np.radians(self.outages['latitude'].values)
-        out_lon = np.radians(self.outages['longitude'].values)
-        dlat = out_lat - lat0
-        dlon = out_lon - lon0
-        a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(out_lat) * np.sin(dlon / 2) ** 2
-        distances_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
-        return self.outages[distances_km <= buffer_radius_km].copy(), site_info
+        return outages_within_radius(self.outages, site_info['latitude'],
+                                     site_info['longitude'], buffer_radius_km), site_info
 
     def _compute_global_metric_ranges(self) -> dict:
         """Precompute min/max for frequency, duration, impact, CV across all sites."""

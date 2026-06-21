@@ -83,7 +83,9 @@ def haversine_km(lat1: float, lon1: float, lat2: np.ndarray, lon2: np.ndarray) -
 # ---------------------------------------------------------------------------
 
 
-def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE) -> pd.DataFrame:
+def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
+                        start_date=None, end_date=None,
+                        grid_cells=None) -> pd.DataFrame:
     """Compute per-grid-cell features from the outage catalogue.
 
     Parameters
@@ -94,6 +96,14 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE) -> 
         ``incident_date_time``, ``direct_cause_category``).
     cell_size : float
         Grid cell size in degrees.
+    start_date : str or pd.Timestamp or None
+        If set, only include outages on or after this date.
+    end_date : str or pd.Timestamp or None
+        If set, only include outages before this date.
+    grid_cells : pd.DataFrame or None
+        If provided, must have ``lat`` and ``lon`` columns defining the
+        fixed grid.  Cells with no outages in the window get zeroed
+        features.  When *None* the grid is derived from the data.
 
     Returns
     -------
@@ -105,6 +115,27 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE) -> 
     # Ensure datetime
     if not pd.api.types.is_datetime64_any_dtype(df["incident_date_time"]):
         df["incident_date_time"] = pd.to_datetime(df["incident_date_time"], errors="coerce", utc=True)
+
+    # Filter to date window
+    if start_date is not None:
+        start_ts = pd.Timestamp(start_date)
+        if start_ts.tzinfo is None:
+            start_ts = start_ts.tz_localize("UTC")
+        df = df[df["incident_date_time"] >= start_ts]
+    if end_date is not None:
+        end_ts = pd.Timestamp(end_date)
+        if end_ts.tzinfo is None:
+            end_ts = end_ts.tz_localize("UTC")
+        df = df[df["incident_date_time"] < end_ts]
+
+    # If no outages in window, return grid_cells with zeroed features
+    if df.empty and grid_cells is not None:
+        result = grid_cells[["lat", "lon"]].copy()
+        for col in FEATURE_COLS:
+            result[col] = 0.0
+        return result
+    elif df.empty:
+        return pd.DataFrame(columns=["lat", "lon"] + FEATURE_COLS)
 
     # Assign grid cell
     df["cell_lat"] = (df["latitude"] / cell_size).round() * cell_size
@@ -164,6 +195,12 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE) -> 
     else:
         features["nearest_substation_km"] = 0.0
 
+    # If a fixed grid was provided, ensure all cells are present (zeroed if no outages)
+    if grid_cells is not None:
+        features = grid_cells[["lat", "lon"]].merge(features, on=["lat", "lon"], how="left")
+        for col in FEATURE_COLS:
+            features[col] = features[col].fillna(0)
+
     return features
 
 
@@ -218,17 +255,132 @@ def assign_risk_labels(features: pd.DataFrame) -> pd.DataFrame:
         Features with an added ``risk_level`` column (categorical).
     """
     df = features.copy()
-    df["risk_level"] = pd.qcut(
-        df["outage_count"],
-        q=3,
-        labels=RISK_LABELS,
-        duplicates="drop",
-    )
+    non_zero = df.loc[df["outage_count"] > 0, "outage_count"]
+    if len(non_zero) == 0:
+        df["risk_level"] = "Low"
+    else:
+        median_nz = non_zero.median()
+        df["risk_level"] = "Low"
+        df.loc[df["outage_count"] > 0, "risk_level"] = "Medium"
+        df.loc[df["outage_count"] > median_nz, "risk_level"] = "High"
+    df["risk_level"] = pd.Categorical(df["risk_level"], categories=RISK_LABELS, ordered=True)
     return df
 
 
-# ---------------------------------------------------------------------------
-# Model training
+def build_training_samples(outages: pd.DataFrame,
+                           feature_months: int = 12,
+                           prediction_months: int = 3,
+                           step_months: int = 1,
+                           start_year: int = 2015,
+                           cell_size: float = CELL_SIZE) -> pd.DataFrame:
+    """Build training data using a sliding window approach.
+
+    For each cutoff date (monthly steps), compute features from the
+    preceding *feature_months* and labels from the following
+    *prediction_months*.  Labels are Low/Medium/High based on quantile
+    binning of outage count in the prediction window.
+
+    Parameters
+    ----------
+    outages : pd.DataFrame
+        Full outage dataset with ``incident_date_time`` column.
+    feature_months : int
+        Number of months of history to compute features from.
+    prediction_months : int
+        Number of months ahead to compute labels from.
+    step_months : int
+        Months to advance the window each step.
+    start_year : int
+        First year to generate windows from (needs enough history).
+    cell_size : float
+        Grid cell size in degrees.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: lat, lon, cutoff_date, FEATURE_COLS..., risk_level
+    """
+    df = outages.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["incident_date_time"]):
+        df["incident_date_time"] = pd.to_datetime(df["incident_date_time"], errors="coerce", utc=True)
+
+    # Define the fixed grid from the full dataset
+    df["cell_lat"] = (df["latitude"] / cell_size).round() * cell_size
+    df["cell_lon"] = (df["longitude"] / cell_size).round() * cell_size
+    grid_cells = df.groupby(["cell_lat", "cell_lon"]).size().reset_index()[["cell_lat", "cell_lon"]]
+    grid_cells.rename(columns={"cell_lat": "lat", "cell_lon": "lon"}, inplace=True)
+
+    # Date range for sliding windows
+    min_date = df["incident_date_time"].min()
+    max_date = df["incident_date_time"].max()
+
+    # First cutoff: start of (start_year + 1) so feature window has full 12 months
+    first_cutoff = pd.Timestamp(f"{start_year + 1}-01-01", tz="UTC")
+    # Last cutoff: enough room for prediction_months
+    last_cutoff = max_date - pd.DateOffset(months=prediction_months)
+
+    if first_cutoff >= last_cutoff:
+        log.warning("Not enough data for sliding window (data spans %s to %s)", min_date, max_date)
+        return pd.DataFrame()
+
+    samples = []
+    cutoff = first_cutoff
+    while cutoff <= last_cutoff:
+        feature_start = cutoff - pd.DateOffset(months=feature_months)
+        feature_end = cutoff
+        label_start = cutoff
+        label_end = cutoff + pd.DateOffset(months=prediction_months)
+
+        # Build features from the feature window
+        features = build_grid_features(
+            outages, cell_size=cell_size,
+            start_date=feature_start, end_date=feature_end,
+            grid_cells=grid_cells,
+        )
+
+        # Count outages in the prediction window per cell
+        label_outages = df[
+            (df["incident_date_time"] >= label_start) &
+            (df["incident_date_time"] < label_end)
+        ]
+        label_counts = (
+            label_outages
+            .groupby(["cell_lat", "cell_lon"])
+            .size()
+            .reset_index(name="future_outage_count")
+        )
+        label_counts.rename(columns={"cell_lat": "lat", "cell_lon": "lon"}, inplace=True)
+
+        # Merge features with labels
+        merged = features.merge(label_counts, on=["lat", "lon"], how="left")
+        merged["future_outage_count"] = merged["future_outage_count"].fillna(0)
+
+        # Assign risk labels from quantile binning of future outage count
+        # Label: 0 outages = Low, above median of non-zero = High, else Medium
+        non_zero = merged.loc[merged["future_outage_count"] > 0, "future_outage_count"]
+        if len(non_zero) == 0:
+            merged["risk_level"] = "Low"
+        else:
+            median_nz = non_zero.median()
+            merged["risk_level"] = "Low"
+            merged.loc[merged["future_outage_count"] > 0, "risk_level"] = "Medium"
+            merged.loc[merged["future_outage_count"] > median_nz, "risk_level"] = "High"
+        merged["risk_level"] = pd.Categorical(merged["risk_level"], categories=RISK_LABELS, ordered=True)
+
+        merged["cutoff_date"] = cutoff
+        samples.append(merged)
+
+        cutoff += pd.DateOffset(months=step_months)
+
+    if not samples:
+        return pd.DataFrame()
+
+    result = pd.concat(samples, ignore_index=True)
+    # Keep only cells that have at least some outage history
+    result = result[result[FEATURE_COLS].sum(axis=1) > 0]
+    log.info("Built %d training samples from %d windows (%d cells per window)",
+             len(result), len(samples), len(grid_cells))
+    return result
 # ---------------------------------------------------------------------------
 
 FEATURE_COLS = [
@@ -307,7 +459,7 @@ def evaluate_model(model, X_test, y_test, label_encoder=None, model_name: str = 
 
     acc = accuracy_score(y_test, y_pred)
     log.info("%s accuracy: %.3f", model_name, acc)
-    log.info("\n%s", classification_report(y_test, y_pred, target_names=RISK_LABELS))
+    log.info("\n%s", classification_report(y_test, y_pred, labels=RISK_LABELS, target_names=RISK_LABELS, zero_division=0))
 
     cm = confusion_matrix(y_test, y_pred, labels=RISK_LABELS)
     log.info("Confusion matrix:\n%s", cm)
@@ -395,19 +547,33 @@ def load_models():
 
 
 def _train_and_save():
-    """Train both models on the full dataset and save to disk."""
-    from sklearn.model_selection import train_test_split
+    """Train both models using sliding-window temporal data and save to disk.
 
+    Uses 12-month feature windows, 3-month prediction windows, 1-month step.
+    Temporal split: last 12 months of windows = test set.
+    """
     outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
     log.info("Training models on %d outage records...", len(outages))
 
-    features = build_grid_features(outages)
-    features = assign_risk_labels(features)
-    X, y = get_xy(features)
+    # Build sliding-window training samples
+    samples = build_training_samples(outages)
+    if samples.empty:
+        log.error("No training samples generated — check data range")
+        return
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    # Temporal split: last 12 months of cutoff dates = test
+    cutoff_dates = samples["cutoff_date"].sort_values().unique()
+    test_cutoff = cutoff_dates[-12] if len(cutoff_dates) > 12 else cutoff_dates[len(cutoff_dates) // 2]
+    train_mask = samples["cutoff_date"] < test_cutoff
+
+    train_data = samples[train_mask]
+    test_data = samples[~train_mask]
+
+    X_train, y_train = get_xy(train_data)
+    X_test, y_test = get_xy(test_data)
+
+    log.info("Train: %d samples, Test: %d samples (split at %s)", len(train_data), len(test_data), test_cutoff)
+    log.info("Risk distribution (train):\n%s", train_data["risk_level"].value_counts().to_string())
 
     rf_model = train_random_forest(X_train, y_train)
     evaluate_model(rf_model, X_test, y_test, model_name="Random Forest")
@@ -419,9 +585,11 @@ def _train_and_save():
 
     save_models(rf_model, xgb_model, xgb_le)
 
-    # Also save predictions
+    # Save predictions using the most recent feature window
+    latest_cutoff = cutoff_dates[-1]
+    latest_features = samples[samples["cutoff_date"] == latest_cutoff]
     for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
-        preds = predict_cells(model, features, le)
+        preds = predict_cells(model, latest_features, le)
         out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
         preds.to_csv(out_path, index=False)
         log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
@@ -451,52 +619,8 @@ def main():
             log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
         return
 
-    # --- Train ---
-    log.info("Loading data from %s", DATA_FILE)
-    outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
-    log.info("Loaded %d outage records", len(outages))
-
-    features = build_grid_features(outages)
-    features = assign_risk_labels(features)
-    log.info("Grid features: %d cells", len(features))
-    log.info("Risk distribution:\n%s", features["risk_level"].value_counts().to_string())
-
-    X, y = get_xy(features)
-
-    from sklearn.model_selection import train_test_split, cross_val_score
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    # Random Forest
-    log.info("Training Random Forest...")
-    rf_model = train_random_forest(X_train, y_train)
-    rf_results = evaluate_model(rf_model, X_test, y_test, model_name="Random Forest")
-    get_feature_importance(rf_model, "Random Forest")
-
-    # XGBoost
-    log.info("Training XGBoost...")
-    xgb_model, xgb_le = train_xgboost(X_train, y_train)
-    xgb_results = evaluate_model(xgb_model, X_test, y_test, xgb_le, "XGBoost")
-    get_feature_importance(xgb_model, "XGBoost")
-
-    # Cross-validation
-    log.info("5-fold cross-validation...")
-    rf_cv = cross_val_score(rf_model, X, y, cv=5, scoring="accuracy")
-    log.info("RF CV accuracy: %.3f ± %.3f", rf_cv.mean(), rf_cv.std())
-
-    # Save
-    if not args.evaluate:
-        save_models(rf_model, xgb_model, xgb_le)
-
-        # Generate and save predictions
-        for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
-            preds = predict_cells(model, features, le)
-            out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
-            preds.to_csv(out_path, index=False)
-            log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
-
+    # --- Train with sliding-window temporal approach ---
+    _train_and_save()
     log.info("Done.")
 
 
