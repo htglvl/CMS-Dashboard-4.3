@@ -272,10 +272,6 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
-            # Store clicked location
-            st.session_state.clicked_lat = clicked_lat
-            st.session_state.clicked_lng = clicked_lng
-
             # Process click (fast - just numpy calculation)
             t_click = time.time()
             data["charging_sites"]['distance'] = np.sqrt(
@@ -287,6 +283,16 @@ def main():
 
             # Determine if we're inside buffer zone
             is_in_buffer = nearest_site['distance'] < 0.05
+
+            # Store coordinates for pin placement
+            if is_in_buffer:
+                # Inside buffer - use charging site coordinates for pin
+                st.session_state.clicked_lat = nearest_site['latitude']
+                st.session_state.clicked_lng = nearest_site['longitude']
+            else:
+                # Outside buffer - use clicked coordinates for pin
+                st.session_state.clicked_lat = clicked_lat
+                st.session_state.clicked_lng = clicked_lng
 
             # Find nearest risk prediction using Haversine
             if data["risk_predictions"] is not None and not data["risk_predictions"].empty:
