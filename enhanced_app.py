@@ -236,15 +236,7 @@ def main():
     with col1:
         st.subheader("Interactive Spatial Analysis")
 
-        # Create map fresh each time (Folium maps don't cache well with st_folium)
-        t_map = time.time()
-
-        # Debug: Log pin coordinates
-        pin_lat = st.session_state.get("pin_lat")
-        pin_lng = st.session_state.get("pin_lng")
-        selected_site = st.session_state.get("selected_site")
-        print(f"[MAP CREATE] pin_lat={pin_lat}, pin_lng={pin_lng}, selected_site={selected_site}")
-
+        # Create map with pin at clicked location
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
             show_chargepoints=filters["show_chargepoints"],
@@ -255,98 +247,31 @@ def main():
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
             risk_report=data["risk_report"],
-            clicked_lat=pin_lat,
-            clicked_lng=pin_lng,
-            clicked_site_name=selected_site,
+            clicked_lat=st.session_state.get("pin_lat"),
+            clicked_lng=st.session_state.get("pin_lng"),
+            clicked_site_name=st.session_state.get("selected_site"),
         )
-        t_map = _ts("create_advanced_map", t_map)
 
-        # Render map
-        t_render = time.time()
+        # Render map and capture click
         map_data = st_folium(
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked", "last_object_clicked"],
+            returned_objects=["last_clicked"],
             key="main_map",
         )
-        t_render = _ts("st_folium render", t_render)
 
-        # Process click immediately
+        # Store clicked coordinates
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
+            st.session_state.pin_lat = clicked_lat
+            st.session_state.pin_lng = clicked_lng
+            st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
 
-            # Log click coordinates to console
-            print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
-
-            # Check if a marker was clicked by examining last_object_clicked
-            last_object = map_data.get('last_object_clicked')
-            clicked_on_marker = False
-            marker_info = None
-
-            print(f"[MAP CLICK] last_object_clicked: {last_object}")
-
-            if last_object and isinstance(last_object, dict):
-                # Check if the object has properties (indicates a feature was clicked)
-                properties = last_object.get('properties', {})
-                if properties:
-                    clicked_on_marker = True
-                    marker_info = properties
-                    print(f"[MAP CLICK] Marker properties: {properties}")
-
-            if clicked_on_marker and marker_info:
-                # A marker was clicked - extract info from popup/tooltip
-                tooltip = marker_info.get('tooltip', '')
-                popup = marker_info.get('popup', '')
-
-                print(f"[MAP CLICK] Tooltip: {tooltip}")
-                print(f"[MAP CLICK] Popup: {popup}")
-
-                # Check if it's a charging site (tooltip has format "Site Name (Category)")
-                if tooltip and '(' in tooltip and ')' in tooltip:
-                    site_name = tooltip.split(' (')[0]
-                    # Find the site in charging_sites
-                    site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == site_name]
-                    if not site_match.empty:
-                        site = site_match.iloc[0]
-                        st.session_state.selected_site = site_name
-                        st.session_state.pin_lat = float(site['latitude'])
-                        st.session_state.pin_lng = float(site['longitude'])
-                        st.session_state.pin_type = 'site'
-                        print(f"[MAP CLICK] Selected site: {site_name}")
-
-                # Check if it's a live incident (popup has "🔴" or "INC")
-                elif popup and ('🔴' in popup or 'INC' in popup):
-                    # Extract incident info from popup
-                    import re
-                    inc_match = re.search(r'INC (\d+)', popup)
-                    if inc_match:
-                        inc_num = inc_match.group(1)
-                        # Find the incident in live_incidents
-                        if data["live_incidents"] is not None and not data["live_incidents"].empty:
-                            inc_match_df = data["live_incidents"][data["live_incidents"]['incident_num'].astype(str) == inc_num]
-                            if not inc_match_df.empty:
-                                inc = inc_match_df.iloc[0]
-                                inc_type = inc.get('incident_type', 'Unknown')
-                                st.session_state.selected_site = f"🔴 Incident {inc_num} — {inc_type}"
-                                st.session_state.pin_lat = float(inc['latitude'])
-                                st.session_state.pin_lng = float(inc['longitude'])
-                                st.session_state.pin_type = 'incident'
-                                print(f"[MAP CLICK] Selected incident: {inc_num}")
-            else:
-                # No marker clicked - use clicked coordinates
-                st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
-                st.session_state.pin_lat = clicked_lat
-                st.session_state.pin_lng = clicked_lng
-                st.session_state.pin_type = 'custom'
-                print(f"[MAP CLICK] Custom location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
-
-        # Show selected site if exists
+        # Show selected site and charts
         if st.session_state.get("selected_site"):
             st.success(f"**{st.session_state.selected_site}**")
-
-            # Show advanced charts
             display_dynamic_charts(
                 st.session_state.selected_site,
                 data["charging_sites"], data["filtered_outages"],
