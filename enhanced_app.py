@@ -265,37 +265,40 @@ def main():
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked"],
+            returned_objects=["last_clicked", "last_object_clicked"],
             key="main_map",
         )
 
-        # Process click
+        # Process click - update state directly (no st.rerun)
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
 
-            # Find nearest charging site
-            site_distances = np.sqrt(
-                (data["charging_sites"]['latitude'].values - clicked_lat)**2 +
-                (data["charging_sites"]['longitude'].values - clicked_lng)**2
+            # Check if marker was clicked
+            last_object = map_data.get('last_object_clicked')
+            if last_object and isinstance(last_object, dict):
+                properties = last_object.get('properties', {})
+                tooltip = properties.get('tooltip', '')
+                if tooltip:
+                    print(f"[CLICK] Marker: {tooltip}")
+
+            # Store coordinates
+            st.session_state.pin_lat = clicked_lat
+            st.session_state.pin_lng = clicked_lng
+            st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+
+        # Show selected site and charts
+        if st.session_state.get("selected_site"):
+            st.success(f"**{st.session_state.selected_site}**")
+            display_dynamic_charts(
+                st.session_state.selected_site,
+                data["charging_sites"], data["filtered_outages"],
+                is_dark=data["is_dark"],
+                risk_predictions=data["risk_predictions"],
+                risk_model_choice=filters["risk_model_choice"],
+                clicked_lat=st.session_state.get("pin_lat"),
+                clicked_lng=st.session_state.get("pin_lng"),
             )
-            nearest_idx = np.argmin(site_distances)
-            nearest_site = data["charging_sites"].iloc[nearest_idx]
-            nearest_dist = site_distances[nearest_idx]
-
-            # If very close to a site (< 0.001 degrees ~ 100m), use site name
-            if nearest_dist < 0.001:
-                st.session_state.pin_lat = float(nearest_site['latitude'])
-                st.session_state.pin_lng = float(nearest_site['longitude'])
-                st.session_state.selected_site = nearest_site['charge_point_location']
-                print(f"[CLICK] Chargepoint: {nearest_site['charge_point_location']}")
-            else:
-                st.session_state.pin_lat = clicked_lat
-                st.session_state.pin_lng = clicked_lng
-                st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
-                print(f"[CLICK] Location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
-
-            st.rerun()
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
