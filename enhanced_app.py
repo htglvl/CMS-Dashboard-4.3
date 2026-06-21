@@ -260,7 +260,7 @@ def main():
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked"],
+            returned_objects=["last_clicked", "last_object_clicked"],
             key="main_map",
         )
         t_render = _ts("st_folium render", t_render)
@@ -272,19 +272,36 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
-            # Check if click is on a charging site dot (small threshold ~100m)
-            data["charging_sites"]['distance'] = np.sqrt(
-                (data["charging_sites"]['latitude'] - clicked_lat)**2 +
-                (data["charging_sites"]['longitude'] - clicked_lng)**2
-            )
-            nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
-            is_on_dot = nearest_site['distance'] < 0.001  # ~100m threshold for clicking on dot
+            # Check if a marker was clicked (last_object_clicked contains marker info)
+            last_object = map_data.get('last_object_clicked')
+            clicked_on_marker = False
+            clicked_site_name = None
+
+            if last_object and isinstance(last_object, dict):
+                # Check if the clicked object has popup/tooltip content
+                properties = last_object.get('properties', {})
+                tooltip = properties.get('tooltip', '')
+                popup = properties.get('popup', '')
+
+                # If tooltip contains site info, it's a marker click
+                if tooltip and '(' in tooltip and ')' in tooltip:
+                    clicked_on_marker = True
+                    # Extract site name from tooltip (format: "Site Name (Category)")
+                    clicked_site_name = tooltip.split(' (')[0]
 
             # Set display name and coordinates
-            if is_on_dot:
-                st.session_state.selected_site = nearest_site['charge_point_location']
-                st.session_state.pin_lat = nearest_site['latitude']
-                st.session_state.pin_lng = nearest_site['longitude']
+            if clicked_on_marker and clicked_site_name:
+                # Find the site in charging_sites
+                site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == clicked_site_name]
+                if not site_match.empty:
+                    site = site_match.iloc[0]
+                    st.session_state.selected_site = clicked_site_name
+                    st.session_state.pin_lat = site['latitude']
+                    st.session_state.pin_lng = site['longitude']
+                else:
+                    st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                    st.session_state.pin_lat = clicked_lat
+                    st.session_state.pin_lng = clicked_lng
             else:
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
                 st.session_state.pin_lat = clicked_lat
