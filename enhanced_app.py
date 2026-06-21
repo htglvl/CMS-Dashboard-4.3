@@ -278,29 +278,56 @@ def main():
                 (data["charging_sites"]['latitude'] - clicked_lat)**2 +
                 (data["charging_sites"]['longitude'] - clicked_lng)**2
             )
-            nearest_idx = data["charging_sites"]['distance'].idxmin()
-            nearest_site = data["charging_sites"].loc[nearest_idx]
-            nearest_dist = nearest_site['distance']
+            nearest_site_idx = data["charging_sites"]['distance'].idxmin()
+            nearest_site = data["charging_sites"].loc[nearest_site_idx]
+            nearest_site_dist = nearest_site['distance']
 
-            # Log nearest site info
-            print(f"[MAP CLICK] Nearest site: {nearest_site['charge_point_location']}, Distance: {nearest_dist:.6f}")
+            # Find nearest live incident
+            nearest_incident = None
+            nearest_incident_dist = float('inf')
+            if data["live_incidents"] is not None and not data["live_incidents"].empty:
+                data["live_incidents"]['distance'] = np.sqrt(
+                    (data["live_incidents"]['latitude'] - clicked_lat)**2 +
+                    (data["live_incidents"]['longitude'] - clicked_lng)**2
+                )
+                nearest_incident_idx = data["live_incidents"]['distance'].idxmin()
+                nearest_incident = data["live_incidents"].loc[nearest_incident_idx]
+                nearest_incident_dist = nearest_incident['distance']
 
-            # Check if click is on a marker (within ~0.002 degrees ≈ 200m)
-            # This accounts for marker size and click precision
-            if nearest_dist < 0.002:
-                # Clicked on or very near a charging site
+            # Log distances
+            print(f"[MAP CLICK] Nearest site: {nearest_site['charge_point_location']}, Distance: {nearest_site_dist:.6f}")
+            if nearest_incident is not None:
+                print(f"[MAP CLICK] Nearest incident: {nearest_incident.get('incident_num', 'N/A')}, Distance: {nearest_incident_dist:.6f}")
+
+            # Determine what was clicked (within ~0.002 degrees ≈ 200m)
+            clicked_on_site = nearest_site_dist < 0.002
+            clicked_on_incident = nearest_incident is not None and nearest_incident_dist < 0.002
+
+            if clicked_on_site:
+                # Clicked on charging site
                 st.session_state.selected_site = nearest_site['charge_point_location']
                 st.session_state.pin_lat = nearest_site['latitude']
                 st.session_state.pin_lng = nearest_site['longitude']
+                st.session_state.pin_type = 'site'
                 print(f"[MAP CLICK] Selected site: {nearest_site['charge_point_location']}")
+            elif clicked_on_incident:
+                # Clicked on live incident
+                inc_num = nearest_incident.get('incident_num', 'Unknown')
+                inc_type = nearest_incident.get('incident_type', 'Unknown')
+                st.session_state.selected_site = f"🔴 Incident {inc_num} — {inc_type}"
+                st.session_state.pin_lat = nearest_incident['latitude']
+                st.session_state.pin_lng = nearest_incident['longitude']
+                st.session_state.pin_type = 'incident'
+                print(f"[MAP CLICK] Selected incident: {inc_num}")
             else:
                 # Clicked elsewhere
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
                 st.session_state.pin_lat = clicked_lat
                 st.session_state.pin_lng = clicked_lng
+                st.session_state.pin_type = 'custom'
                 print(f"[MAP CLICK] Custom location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
 
-        # Show selected site if exists (pin already shows on map above)
+        # Show selected site if exists
         if st.session_state.get("selected_site"):
             st.success(f"**{st.session_state.selected_site}**")
 

@@ -467,9 +467,23 @@ def create_advanced_map(
             ).add_to(live_group)
         live_group.add_to(m)
 
-    # Add pin marker for clicked location
+    # Add pin marker and 2-mile buffer for clicked location
     if clicked_lat is not None and clicked_lng is not None:
         pin_label = clicked_site_name if clicked_site_name else "📍 Clicked Location"
+
+        # Add 2-mile buffer around pin
+        folium.Circle(
+            location=[clicked_lat, clicked_lng],
+            radius=3218,  # 2 miles in meters
+            color="#FF1493",
+            fill=True,
+            fillColor="#FF1493",
+            fillOpacity=0.1,
+            weight=2,
+            dash_array='5, 5',
+        ).add_to(m)
+
+        # Add pin marker
         folium.Marker(
             location=[clicked_lat, clicked_lng],
             popup=folium.Popup(f"<b>{pin_label}</b><br>📍 {clicked_lat:.4f}, {clicked_lng:.4f}", max_width=250),
