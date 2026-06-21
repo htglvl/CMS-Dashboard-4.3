@@ -1,0 +1,70 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+*.so
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+.ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+
+# Logs & runtime state
+logs/
+*.log
+.last_fetch_outages
+data/.last_fetch_outages
+
+# Large data files (keep small CSVs, ignore large datasets)
+*.parquet
+*.pkl
+*.pickle
+grid_features_cache.pkl
+recommendations_cache.pkl
+borderlands_geocache.pkl
+chart_data_cache.pkl
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Temp
+*.tmp
+nul
+
+# Streamlit
+.streamlit/
+
+data/
