@@ -274,37 +274,59 @@ def main():
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
 
-            # Check if marker was clicked
+            # Check if marker was clicked - last_object_clicked returns lat/lng of marker
             last_object = map_data.get('last_object_clicked')
             clicked_site = None
 
+            print(f"[CLICK] clicked at: ({clicked_lat}, {clicked_lng})")
             print(f"[CLICK] last_object_clicked: {last_object}")
 
-            if last_object and isinstance(last_object, dict):
-                properties = last_object.get('properties', {})
-                tooltip = properties.get('tooltip', '')
-                print(f"[CLICK] tooltip: '{tooltip}'")
+            # If last_object_clicked has lat/lng, a marker was clicked
+            if last_object and isinstance(last_object, dict) and 'lat' in last_object:
+                marker_lat = last_object['lat']
+                marker_lng = last_object['lng']
+                print(f"[CLICK] Marker at: ({marker_lat}, {marker_lng})")
 
-                # Check if tooltip has chargepoint format: "Site Name (Category)"
-                if tooltip and '(' in tooltip and ')' in tooltip:
-                    clicked_site = tooltip.split(' (')[0]
-                    print(f"[CLICK] Chargepoint detected: {clicked_site}")
+                # Find nearest chargepoint to marker location
+                site_distances = np.sqrt(
+                    (data["charging_sites"]['latitude'].values - marker_lat)**2 +
+                    (data["charging_sites"]['longitude'].values - marker_lng)**2
+                )
+                nearest_idx = np.argmin(site_distances)
+                nearest_dist = site_distances[nearest_idx]
 
-            # Store coordinates and site name
-            if clicked_site:
-                # Find the site to get exact coordinates
-                site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == clicked_site]
-                if not site_match.empty:
-                    site = site_match.iloc[0]
-                    st.session_state.pin_lat = float(site['latitude'])
-                    st.session_state.pin_lng = float(site['longitude'])
-                    st.session_state.selected_site = clicked_site
-                    print(f"[CLICK] Selected site: {clicked_site}")
+                # If marker is very close to a chargepoint (< 0.001 degrees ~ 100m)
+                if nearest_dist < 0.001:
+                    nearest_site = data["charging_sites"].iloc[nearest_idx]
+                    st.session_state.pin_lat = float(nearest_site['latitude'])
+                    st.session_state.pin_lng = float(nearest_site['longitude'])
+                    st.session_state.selected_site = nearest_site['charge_point_location']
+                    print(f"[CLICK] Chargepoint: {nearest_site['charge_point_location']}")
                 else:
-                    st.session_state.pin_lat = clicked_lat
-                    st.session_state.pin_lng = clicked_lng
-                    st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                    # Check if it's a live incident
+                    if data["live_incidents"] is not None and not data["live_incidents"].empty:
+                        inc_distances = np.sqrt(
+                            (data["live_incidents"]['latitude'].values - marker_lat)**2 +
+                            (data["live_incidents"]['longitude'].values - marker_lng)**2
+                        )
+                        nearest_inc_idx = np.argmin(inc_distances)
+                        nearest_inc_dist = inc_distances[nearest_inc_idx]
+                        if nearest_inc_dist < 0.001:
+                            inc = data["live_incidents"].iloc[nearest_inc_idx]
+                            st.session_state.pin_lat = float(inc['latitude'])
+                            st.session_state.pin_lng = float(inc['longitude'])
+                            st.session_state.selected_site = f"🔴 Incident {inc.get('incident_num', 'N/A')}"
+                            print(f"[CLICK] Incident: {inc.get('incident_num')}")
+                        else:
+                            st.session_state.pin_lat = clicked_lat
+                            st.session_state.pin_lng = clicked_lng
+                            st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                    else:
+                        st.session_state.pin_lat = clicked_lat
+                        st.session_state.pin_lng = clicked_lng
+                        st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
             else:
+                # No marker clicked - use clicked coordinates
                 st.session_state.pin_lat = clicked_lat
                 st.session_state.pin_lng = clicked_lng
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
