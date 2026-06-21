@@ -294,8 +294,9 @@ def main():
 
                 print(f"[CLICK] Nearest site: {nearest_site['charge_point_location']}, dist: {nearest_dist:.6f}")
 
-                # If click is very close to a chargepoint, use site name
-                if nearest_dist < 0.003:  # ~300m threshold
+                # If click is near a chargepoint, use site name
+                # 0.05 degrees ≈ 5km — matches the visible marker click area
+                if nearest_dist < 0.05:
                     st.session_state.pin_lat = float(nearest_site['latitude'])
                     st.session_state.pin_lng = float(nearest_site['longitude'])
                     st.session_state.selected_site = nearest_site['charge_point_location']
@@ -305,19 +306,6 @@ def main():
                     st.session_state.pin_lng = clicked_lng
                     st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
                     print(f"[CLICK] Location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
-
-        # Show selected site and charts
-        if st.session_state.get("selected_site"):
-            st.success(f"**{st.session_state.selected_site}**")
-            display_dynamic_charts(
-                st.session_state.selected_site,
-                data["charging_sites"], data["filtered_outages"],
-                is_dark=data["is_dark"],
-                risk_predictions=data["risk_predictions"],
-                risk_model_choice=filters["risk_model_choice"],
-                clicked_lat=st.session_state.get("pin_lat"),
-                clicked_lng=st.session_state.get("pin_lng"),
-            )
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
