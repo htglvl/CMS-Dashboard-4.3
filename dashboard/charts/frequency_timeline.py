@@ -1,10 +1,14 @@
 """Tab 1: Frequency Timeline — outage count and customer-hours over time."""
 
+import hashlib
 import streamlit as st
 
 
 def render_frequency_timeline(chart_generator, site_outages, site_name):
     """Render two side-by-side line charts with help tooltips."""
+    # Create unique keys based on site name
+    site_hash = hashlib.md5(site_name.encode()).hexdigest()[:8]
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -15,7 +19,7 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows how often outages happen over time and whether they're getting more frequent.",
         )
         freq_chart = chart_generator.create_frequency_timeline(site_outages, site_name)
-        st.plotly_chart(freq_chart, width='stretch', key="freq_timeline")
+        st.plotly_chart(freq_chart, width='stretch', key=f"freq_{site_hash}")
 
     with col2:
         st.caption(
@@ -24,4 +28,4 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows the trend of impact severity over time.",
         )
         hours_chart = chart_generator.create_customer_hours_timeline(site_outages, site_name)
-        st.plotly_chart(hours_chart, width='stretch', key="hours_timeline")
+        st.plotly_chart(hours_chart, width='stretch', key=f"hours_{site_hash}")

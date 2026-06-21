@@ -276,16 +276,35 @@ def main():
 
             # Check if marker was clicked
             last_object = map_data.get('last_object_clicked')
+            clicked_site = None
+
             if last_object and isinstance(last_object, dict):
                 properties = last_object.get('properties', {})
                 tooltip = properties.get('tooltip', '')
-                if tooltip:
-                    print(f"[CLICK] Marker: {tooltip}")
 
-            # Store coordinates
-            st.session_state.pin_lat = clicked_lat
-            st.session_state.pin_lng = clicked_lng
-            st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                # Check if tooltip has chargepoint format: "Site Name (Category)"
+                if tooltip and '(' in tooltip and ')' in tooltip:
+                    clicked_site = tooltip.split(' (')[0]
+                    print(f"[CLICK] Chargepoint: {clicked_site}")
+
+            # Store coordinates and site name
+            if clicked_site:
+                # Find the site to get exact coordinates
+                site_match = data["charging_sites"][data["charging_sites"]['charge_point_location'] == clicked_site]
+                if not site_match.empty:
+                    site = site_match.iloc[0]
+                    st.session_state.pin_lat = float(site['latitude'])
+                    st.session_state.pin_lng = float(site['longitude'])
+                    st.session_state.selected_site = clicked_site
+                else:
+                    st.session_state.pin_lat = clicked_lat
+                    st.session_state.pin_lng = clicked_lng
+                    st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+            else:
+                st.session_state.pin_lat = clicked_lat
+                st.session_state.pin_lng = clicked_lng
+                st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                print(f"[CLICK] Location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
