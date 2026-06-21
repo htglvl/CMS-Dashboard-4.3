@@ -269,13 +269,14 @@ def main():
             key="main_map",
         )
 
-        # Store click coordinates for next rerun
+        # Store click coordinates and rerun to show pin
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
             st.session_state.pin_lat = clicked_lat
             st.session_state.pin_lng = clicked_lng
             st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+            st.rerun()  # Must rerun to show pin on map
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
