@@ -75,12 +75,6 @@ def render_sidebar(charging_sites, outages):
         default=charging_sites['site_category'].unique()
     )
 
-    # Map filter options
-    st.sidebar.subheader("Map Filter")
-    show_chargepoints = st.sidebar.checkbox("Show chargepoint markers", value=True)
-    show_buffers = st.sidebar.checkbox("Show 2-mile buffer zones", value=True)
-    show_heatmap = st.sidebar.checkbox("Show outage heatmap", value=True)
-
     # Statistical filtering
     st.sidebar.subheader("Statistical Filters")
     use_iqr_filter = st.sidebar.checkbox("Apply IQR outlier removal", value=True)
@@ -136,9 +130,9 @@ def render_sidebar(charging_sites, outages):
         "use_significance_filter": use_significance_filter,
         "iqr_multiplier": iqr_multiplier,
         "significance_quantile": significance_quantile,
-        "show_chargepoints": show_chargepoints,
-        "show_buffers": show_buffers,
-        "show_heatmap": show_heatmap,
+        "show_chargepoints": True,  # Always show
+        "show_buffers": True,  # Always show, toggleable via layer control
+        "show_heatmap": True,  # Always show
         "refresh_interval_min": refresh_interval_min,
         "show_live_incidents": show_live_incidents,
         "live_refresh_min": live_refresh_min,
