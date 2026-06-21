@@ -269,6 +269,10 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
+            # Store clicked location
+            st.session_state.clicked_lat = clicked_lat
+            st.session_state.clicked_lng = clicked_lng
+
             # Process click (fast - just numpy calculation)
             t_click = time.time()
             data["charging_sites"]['distance'] = np.sqrt(
@@ -278,12 +282,46 @@ def main():
             nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
             t_click = _ts("process click", t_click)
 
+            # Find nearest risk prediction
+            if data["risk_predictions"] is not None and not data["risk_predictions"].empty:
+                risk_dists = np.sqrt(
+                    (data["risk_predictions"]['lat'] - clicked_lat)**2 +
+                    (data["risk_predictions"]['lon'] - clicked_lng)**2
+                )
+                nearest_risk_idx = risk_dists.idxmin()
+                nearest_risk = data["risk_predictions"].loc[nearest_risk_idx]
+                st.session_state.clicked_risk = {
+                    'risk_level': nearest_risk['risk_level'],
+                    'confidence': nearest_risk['confidence'],
+                    'prob_high': nearest_risk.get('prob_high', 0),
+                    'prob_medium': nearest_risk.get('prob_medium', 0),
+                    'prob_low': nearest_risk.get('prob_low', 0),
+                }
+            else:
+                st.session_state.clicked_risk = None
+
+            # Determine display name
             if nearest_site['distance'] < 0.05:
                 st.session_state.selected_site = nearest_site['charge_point_location']
+            else:
+                st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
 
         # Show selected site if exists
         if st.session_state.get("selected_site"):
-            st.success(f"**Selected Site:** {st.session_state.selected_site}")
+            # Display site name and risk info
+            site_name = st.session_state.selected_site
+            risk_info = st.session_state.get("clicked_risk")
+
+            if risk_info:
+                risk_color = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(risk_info['risk_level'], "⚪")
+                st.success(f"**{site_name}**")
+                st.markdown(f"""
+                | Risk Level | Confidence | P(High) | P(Medium) | P(Low) |
+                |------------|------------|---------|-----------|--------|
+                | {risk_color} {risk_info['risk_level']} | {risk_info['confidence']:.0%} | {risk_info['prob_high']:.0%} | {risk_info['prob_medium']:.0%} | {risk_info['prob_low']:.0%} |
+                """)
+            else:
+                st.success(f"**{site_name}**")
 
             # Show loading spinner only for the charts section
             t_charts = time.time()
