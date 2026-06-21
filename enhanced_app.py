@@ -282,11 +282,22 @@ def main():
             nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
             t_click = _ts("process click", t_click)
 
-            # Find nearest risk prediction using Haversine (same as risk_prediction.py)
+            # Determine if we're inside buffer zone
+            is_in_buffer = nearest_site['distance'] < 0.05
+
+            # Find nearest risk prediction using Haversine
             if data["risk_predictions"] is not None and not data["risk_predictions"].empty:
+                # Use charging site coordinates if in buffer, otherwise use clicked coordinates
+                if is_in_buffer:
+                    risk_lat = nearest_site['latitude']
+                    risk_lng = nearest_site['longitude']
+                else:
+                    risk_lat = clicked_lat
+                    risk_lng = clicked_lng
+
                 # Haversine distance calculation
-                lat1 = np.radians(clicked_lat)
-                lon1 = np.radians(clicked_lng)
+                lat1 = np.radians(risk_lat)
+                lon1 = np.radians(risk_lng)
                 lat2 = np.radians(data["risk_predictions"]['lat'].values)
                 lon2 = np.radians(data["risk_predictions"]['lon'].values)
                 dlat = lat2 - lat1
@@ -307,11 +318,13 @@ def main():
             else:
                 st.session_state.clicked_risk = None
 
-            # Determine display name
-            if nearest_site['distance'] < 0.05:
+            # Determine display name and coordinates to use
+            if is_in_buffer:
                 st.session_state.selected_site = nearest_site['charge_point_location']
+                st.session_state.use_site_coords = True  # Use charging site coordinates
             else:
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+                st.session_state.use_site_coords = False  # Use clicked coordinates
 
         # Show selected site if exists
         if st.session_state.get("selected_site"):
@@ -336,15 +349,27 @@ def main():
             charts_container = st.container()
             with charts_container:
                 with st.spinner("📊 Loading analysis..."):
-                    display_dynamic_charts(
-                        st.session_state.selected_site,
-                        data["charging_sites"], data["filtered_outages"],
-                        is_dark=data["is_dark"],
-                        risk_predictions=data["risk_predictions"],
-                        risk_model_choice=filters["risk_model_choice"],
-                        clicked_lat=st.session_state.get("clicked_lat"),
-                        clicked_lng=st.session_state.get("clicked_lng"),
-                    )
+                    # Pass coordinates based on whether we're in buffer zone or not
+                    if st.session_state.get("use_site_coords", True):
+                        # Inside buffer zone - use charging site coordinates (None = use site_info)
+                        display_dynamic_charts(
+                            st.session_state.selected_site,
+                            data["charging_sites"], data["filtered_outages"],
+                            is_dark=data["is_dark"],
+                            risk_predictions=data["risk_predictions"],
+                            risk_model_choice=filters["risk_model_choice"],
+                        )
+                    else:
+                        # Outside buffer zone - use clicked coordinates
+                        display_dynamic_charts(
+                            st.session_state.selected_site,
+                            data["charging_sites"], data["filtered_outages"],
+                            is_dark=data["is_dark"],
+                            risk_predictions=data["risk_predictions"],
+                            risk_model_choice=filters["risk_model_choice"],
+                            clicked_lat=st.session_state.get("clicked_lat"),
+                            clicked_lng=st.session_state.get("clicked_lng"),
+                        )
             t_charts = _ts("display_dynamic_charts", t_charts)
 
     with col2:
