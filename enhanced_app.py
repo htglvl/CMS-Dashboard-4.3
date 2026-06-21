@@ -244,15 +244,7 @@ def main():
     with col1:
         st.subheader("Interactive Spatial Analysis")
 
-        # Get pin coordinates from session state
-        pin_lat = st.session_state.get("pin_lat")
-        pin_lng = st.session_state.get("pin_lng")
-        selected_site = st.session_state.get("selected_site")
-
-        # Debug: Print pin coordinates
-        print(f"[DEBUG] Creating map with pin_lat={pin_lat}, pin_lng={pin_lng}")
-
-        # Create map with pin at clicked location
+        # Create map with current pin location (from previous click)
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
             show_chargepoints=filters["show_chargepoints"],
@@ -263,9 +255,9 @@ def main():
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
             risk_report=data["risk_report"],
-            clicked_lat=pin_lat,
-            clicked_lng=pin_lng,
-            clicked_site_name=selected_site,
+            clicked_lat=st.session_state.get("pin_lat"),
+            clicked_lng=st.session_state.get("pin_lng"),
+            clicked_site_name=st.session_state.get("selected_site"),
         )
 
         # Render map and capture click
@@ -277,15 +269,13 @@ def main():
             key="main_map",
         )
 
-        # Store clicked coordinates and rerun to show pin
+        # Process click - store coordinates for NEXT rerun
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
             st.session_state.pin_lat = clicked_lat
             st.session_state.pin_lng = clicked_lng
             st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
-            print(f"[DEBUG] Click detected: pin_lat={clicked_lat}, pin_lng={clicked_lng}")
-            st.rerun()  # Force rerun to show pin immediately
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
