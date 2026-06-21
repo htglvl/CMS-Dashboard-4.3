@@ -59,9 +59,10 @@ st.markdown("""
     margin: 0.5rem 0;
 }
 
-/* Make spinner only show in its container, not full page */
+/* Make spinner full width */
 .stSpinner > div {
     position: relative !important;
+    width: 100% !important;
 }
 
 /* Remove grey overlay from spinner */
@@ -69,11 +70,15 @@ st.markdown("""
     display: none !important;
 }
 
-/* Style the spinner to be compact */
+/* Style the spinner message to be full width and readable */
 .stSpinner > div > div {
-    border-width: 3px !important;
-    width: 24px !important;
-    height: 24px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Make st.status containers full width */
+[data-testid="stStatusWidget"] {
+    width: 100% !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -222,10 +227,11 @@ def main():
     # ── Compute everything (with caching) ─────────────────────────────────
     # Create a hash of current filters to detect changes
     filter_hash = hash(str(sorted(filters.items())))
-    
+
     # Only recompute if filters changed or first load
     if "cached_data" not in st.session_state or st.session_state.get("last_filter_hash") != filter_hash:
-        data = prepare_app_data(selected_outage_file, selected_site_file, filters)
+        with st.spinner("Computing risk predictions..."):
+            data = prepare_app_data(selected_outage_file, selected_site_file, filters)
         st.session_state.cached_data = data
         st.session_state.last_filter_hash = filter_hash
         print("[CACHE] Recomputed data (filters changed)")

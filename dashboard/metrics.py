@@ -148,22 +148,33 @@ def render_ai_recommendations(risk_report):
     st.markdown("---")
     st.subheader("AI Recommendations")
 
+    # Category-specific icons
+    category_icons = {
+        "Charging Station Placement": "⚡",  # V2X
+        "Chargepoint Placement": "🔌",       # Regular chargepoint
+        "Grid Resilience": "🏗️",             # Grid infrastructure
+        "Community Impact": "🏠",            # Community buildings
+    }
+
     if risk_report and risk_report.recommendations:
-        # Show all charging station placement recommendations
-        charging_recs = [r for r in risk_report.recommendations if r.category == "Charging Station Placement"]
-        other_recs = [r for r in risk_report.recommendations if r.category != "Charging Station Placement"]
+        # Show all placement recommendations (V2X and chargepoint)
+        placement_categories = ("Charging Station Placement", "Chargepoint Placement")
+        charging_recs = [r for r in risk_report.recommendations if r.category in placement_categories]
+        other_recs = [r for r in risk_report.recommendations if r.category not in placement_categories]
 
         # Show charging station recommendations first (these are on the map)
         for rec in charging_recs:
+            cat_icon = category_icons.get(rec.category, "📋")
             priority_icon = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}.get(rec.priority, "⚪")
-            with st.expander(f"{priority_icon} {rec.title}", expanded=False):
+            with st.expander(f"{cat_icon} {priority_icon} {rec.title}", expanded=False):
                 st.caption(f"Category: {rec.category} | Priority: {rec.priority}")
                 st.markdown(rec.detail)
 
         # Show other recommendations
         for rec in other_recs[:3]:
+            cat_icon = category_icons.get(rec.category, "📋")
             priority_icon = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}.get(rec.priority, "⚪")
-            with st.expander(f"{priority_icon} {rec.title}", expanded=False):
+            with st.expander(f"{cat_icon} {priority_icon} {rec.title}", expanded=False):
                 st.caption(f"Category: {rec.category} | Priority: {rec.priority}")
                 st.markdown(rec.detail)
     else:

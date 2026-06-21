@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.request
+import json
 from dataclasses import dataclass, field
 from math import radians, sin, cos, sqrt, atan2
 from pathlib import Path
@@ -163,15 +165,32 @@ class RecommendationEngine:
     # ------------------------------------------------------------------
 
     def _find_nearest_location_name(self, lat: float, lon: float) -> str:
-        """Find the nearest named location to given coordinates.
+        """Find location name using geocoding API, with fallback to nearest site.
 
-        Searches through charging sites and community buildings to find
-        the closest named location.
+        1. Try reverse geocoding via Nominatim (OSM) to get actual place name.
+        2. If API fails, fall back to 'near [nearest charging site name]'.
         """
-        best_name = None
-        best_dist = float("inf")
+        # Try reverse geocoding API first
+        try:
+            url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&zoom=14"
+            req = urllib.request.Request(url, headers={"User-Agent": "CMS-Dashboard/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                # Try to get a meaningful name from the response
+                address = data.get("address", {})
+                name = (address.get("village") or
+                        address.get("town") or
+                        address.get("suburb") or
+                        address.get("city") or
+                        address.get("hamlet") or
+                        data.get("display_name", "").split(",")[0])
+                if name and name.strip():
+                    log.info("Geocoded (%.4f, %.4f) -> %s", lat, lon, name)
+                    return name.strip()
+        except Exception as e:
+            log.debug("Geocoding API failed for (%.4f, %.4f): %s", lat, lon, e)
 
-        # Search charging sites
+        # Fallback: find nearest charging site name
         if not self.charging_sites.empty and "latitude" in self.charging_sites.columns:
             dists = haversine_vec(
                 lat, lon,
@@ -179,99 +198,164 @@ class RecommendationEngine:
                 self.charging_sites["longitude"].values,
             )
             min_idx = dists.argmin()
-            if dists[min_idx] < best_dist:
-                best_dist = dists[min_idx]
-                best_name = self.charging_sites.iloc[min_idx]["charge_point_location"]
+            site_name = self.charging_sites.iloc[min_idx]["charge_point_location"]
+            if site_name and not pd.isna(site_name):
+                return f"near {site_name}"
 
-        # Search community buildings
-        if not self.community_buildings.empty:
-            dists = haversine_vec(
-                lat, lon,
-                self.community_buildings["latitude"].values,
-                self.community_buildings["longitude"].values,
-            )
-            min_idx = dists.argmin()
-            if dists[min_idx] < best_dist:
-                best_dist = dists[min_idx]
-                best_name = self.community_buildings.iloc[min_idx]["charge_point_location"]
-
-        # If no nearby named location, try to get town name from outages
-        if best_name is None or best_dist > 5.0:
-            if not self.outages.empty and "latitude" in self.outages.columns:
-                dists = haversine_vec(
-                    lat, lon,
-                    self.outages["latitude"].values,
-                    self.outages["longitude"].values,
-                )
-                min_idx = dists.argmin()
-                if dists[min_idx] < 10.0:
-                    # Try to get location info from outages
-                    if "district_name" in self.outages.columns:
-                        best_name = self.outages.iloc[min_idx]["district_name"]
-                    elif "primary_substation" in self.outages.columns:
-                        best_name = self.outages.iloc[min_idx]["primary_substation"]
-
-        return best_name if best_name else f"Area near ({lat:.2f}, {lon:.2f})"
+        # Last resort: coordinates
+        return f"Location ({lat:.4f}, {lon:.4f})"
 
     def charging_station_recommendations(self) -> list[Recommendation]:
-        """Find high-risk areas without V2X coverage."""
-        recs = []
-        high_risk = self.predictions[self.predictions["risk_level"] == "High"].copy()
-        if high_risk.empty:
-            return recs
+        """Find high-risk areas that have chargepoints but need V2X upgrade.
+
+        V2X targets: areas with existing non-V2X chargepoints within 3km
+        but no V2X coverage within 3km.
+        """
+        if "prob_high" in self.predictions.columns:
+            sorted_cells = self.predictions.sort_values("prob_high", ascending=False)
+        else:
+            sorted_cells = self.predictions[self.predictions["risk_level"] == "High"].sort_values("confidence", ascending=False)
 
         v2x_sites = self.charging_sites[
             self.charging_sites["site_category"] == "V2X Chargepoint"
         ]
+        non_v2x_sites = self.charging_sites[
+            self.charging_sites["site_category"] != "V2X Chargepoint"
+        ]
 
-        for _, cell in high_risk.iterrows():
+        candidates = []
+        for _, cell in sorted_cells.iterrows():
             lat, lon = cell["lat"], cell["lon"]
 
-            # Check if any V2X site is within 3 km
+            # Must be within 3km of a non-V2X chargepoint (needs V2X upgrade)
+            if non_v2x_sites.empty:
+                continue
+            non_v2x_dists = haversine_vec(lat, lon, non_v2x_sites["latitude"].values, non_v2x_sites["longitude"].values)
+            if non_v2x_dists.min() > 3.0:
+                continue  # No non-V2X site nearby — skip
+
+            # Must NOT be within 3km of a V2X site (already has V2X)
             if not v2x_sites.empty:
-                dists = haversine_vec(
-                    lat, lon,
-                    v2x_sites["latitude"].values,
-                    v2x_sites["longitude"].values,
-                )
-                nearest_v2x_dist = dists.min()
-                nearest_v2x_name = v2x_sites.iloc[dists.argmin()]["charge_point_location"]
+                v2x_dists = haversine_vec(lat, lon, v2x_sites["latitude"].values, v2x_sites["longitude"].values)
+                if v2x_dists.min() < 3.0:
+                    continue  # Already has V2X — skip
+                nearest_v2x_dist = v2x_dists.min()
+                nearest_v2x_name = v2x_sites.iloc[v2x_dists.argmin()]["charge_point_location"]
             else:
                 nearest_v2x_dist = float("inf")
                 nearest_v2x_name = "N/A"
 
-            if nearest_v2x_dist > 3.0:
-                # Find nearest community building
-                comm_info = self._nearest_community_building(lat, lon)
+            comm_info = self._nearest_community_building(lat, lon)
+            nearest_cp_name = non_v2x_sites.iloc[non_v2x_dists.argmin()]["charge_point_location"]
 
-                # Get location name instead of coordinates
-                location_name = self._find_nearest_location_name(lat, lon)
+            candidates.append({
+                "lat": lat, "lon": lon,
+                "confidence": cell["confidence"],
+                "risk_level": cell["risk_level"],
+                "prob_high": cell.get("prob_high", 0),
+                "nearest_v2x_dist": nearest_v2x_dist,
+                "nearest_v2x_name": nearest_v2x_name,
+                "nearest_cp_name": nearest_cp_name,
+                "comm_info": comm_info,
+            })
 
-                detail = (
-                    f"High-risk area near **{location_name}** has no V2X coverage "
-                    f"within 3 km. Nearest V2X site: {nearest_v2x_name} "
-                    f"({nearest_v2x_dist:.1f} km away). "
-                    f"Confidence: {cell['confidence']:.0%}."
+            if len(candidates) >= 3:
+                break
+
+        recs = []
+        for c in candidates:
+            location_name = self._find_nearest_location_name(c["lat"], c["lon"])
+            detail = (
+                f"High-risk area near **{location_name}** has a chargepoint ({c['nearest_cp_name']}) "
+                f"but no V2X coverage within 3 km. "
+                f"(high-risk probability: {c['prob_high']:.0%}, risk: {c['risk_level']}). "
+                f"Nearest V2X site: {c['nearest_v2x_name']} ({c['nearest_v2x_dist']:.1f} km away)."
+            )
+            if c["comm_info"]:
+                detail += (
+                    f" Nearest community building: {c['comm_info']['name']} "
+                    f"({c['comm_info']['distance']:.1f} km). "
+                    f"V2X deployment here could provide backup power for the community."
                 )
-                if comm_info:
-                    detail += (
-                        f" Nearest community building: {comm_info['name']} "
-                        f"({comm_info['distance']:.1f} km). "
-                        f"V2X deployment here could provide backup power for the community."
-                    )
+            recs.append(Recommendation(
+                category="Charging Station Placement",
+                priority="Critical",
+                title=f"V2X upgrade recommended at {location_name}",
+                detail=detail,
+                location=(c["lat"], c["lon"]),
+                score=c["confidence"],
+            ))
 
-                recs.append(Recommendation(
-                    category="Charging Station Placement",
-                    priority="Critical",
-                    title=f"V2X deployment recommended at {location_name}",
-                    detail=detail,
-                    location=(lat, lon),
-                    score=cell["confidence"],
-                ))
+        return recs
 
-        # Sort by confidence, return top 3
-        recs.sort(key=lambda r: r.score, reverse=True)
-        return recs[:3]
+    def chargepoint_recommendations(self) -> list[Recommendation]:
+        """Find high-risk areas with NO chargepoints at all within 3km.
+
+        These are underserved areas that need basic charging infrastructure.
+        """
+        if "prob_high" in self.predictions.columns:
+            sorted_cells = self.predictions.sort_values("prob_high", ascending=False)
+        else:
+            sorted_cells = self.predictions[self.predictions["risk_level"] == "High"].sort_values("confidence", ascending=False)
+
+        candidates = []
+        for _, cell in sorted_cells.iterrows():
+            lat, lon = cell["lat"], cell["lon"]
+
+            # Skip if ANY chargepoint exists within 3km
+            if not self.charging_sites.empty:
+                all_dists = haversine_vec(
+                    lat, lon,
+                    self.charging_sites["latitude"].values,
+                    self.charging_sites["longitude"].values,
+                )
+                if all_dists.min() < 3.0:
+                    continue
+                nearest_dist = all_dists.min()
+                nearest_name = self.charging_sites.iloc[all_dists.argmin()]["charge_point_location"]
+            else:
+                nearest_dist = float("inf")
+                nearest_name = "N/A"
+
+            comm_info = self._nearest_community_building(lat, lon)
+
+            candidates.append({
+                "lat": lat, "lon": lon,
+                "confidence": cell["confidence"],
+                "risk_level": cell["risk_level"],
+                "prob_high": cell.get("prob_high", 0),
+                "nearest_dist": nearest_dist,
+                "nearest_name": nearest_name,
+                "comm_info": comm_info,
+            })
+
+            if len(candidates) >= 3:
+                break
+
+        recs = []
+        for c in candidates:
+            location_name = self._find_nearest_location_name(c["lat"], c["lon"])
+            detail = (
+                f"High-risk area near **{location_name}** has no chargepoints within 3 km. "
+                f"(high-risk probability: {c['prob_high']:.0%}, risk: {c['risk_level']}). "
+                f"Nearest chargepoint: {c['nearest_name']} ({c['nearest_dist']:.1f} km away)."
+            )
+            if c["comm_info"]:
+                detail += (
+                    f" Nearest community building: {c['comm_info']['name']} "
+                    f"({c['comm_info']['distance']:.1f} km). "
+                    f"New chargepoint here could improve resilience for the community."
+                )
+            recs.append(Recommendation(
+                category="Chargepoint Placement",
+                priority="High",
+                title=f"New chargepoint recommended at {location_name}",
+                detail=detail,
+                location=(c["lat"], c["lon"]),
+                score=c["confidence"],
+            ))
+
+        return recs
 
     def grid_resilience_recommendations(self) -> list[Recommendation]:
         """Identify districts with high outage burden."""
@@ -689,6 +773,7 @@ class RecommendationEngine:
         report = InsightReport()
 
         report.recommendations.extend(self.charging_station_recommendations())
+        report.recommendations.extend(self.chargepoint_recommendations())
         report.recommendations.extend(self.grid_resilience_recommendations())
         report.recommendations.extend(self.community_impact_recommendations())
 

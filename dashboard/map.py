@@ -178,6 +178,54 @@ def create_advanced_map(
         avg_durations = np.zeros(len(charging_sites))
         dt_arr = None
 
+    # ── Risk heatmap layer (rendered below chargepoints) ─────────────
+    if show_risk_heatmap and risk_predictions is not None and not risk_predictions.empty:
+        risk_group = folium.FeatureGroup(name='Risk Heatmap')
+
+        risk_colors = {"High": "#FF0000", "Medium": "#FFD700", "Low": "#00AA00"}
+        risk_opacity = {"High": 0.35, "Medium": 0.25, "Low": 0.15}
+        cell_size = 0.005  # half of 0.01° grid cell
+
+        for _, row in risk_predictions.iterrows():
+            lat, lon = row["lat"], row["lon"]
+            level = row["risk_level"]
+            color = risk_colors.get(level, "#888888")
+            opacity = risk_opacity.get(level, 0.2)
+
+            folium.Rectangle(
+                bounds=[[lat - cell_size, lon - cell_size],
+                        [lat + cell_size, lon + cell_size]],
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=opacity,
+                weight=0,
+                interactive=False,
+            ).add_to(risk_group)
+
+        risk_group.add_to(m)
+
+        # Inject JS to make risk heatmap SVG elements clickthrough
+        risk_js = """
+        <script>
+        (function() {
+            function makeRiskClickthrough() {
+                var panes = document.querySelectorAll('.leaflet-overlay-pane svg');
+                panes.forEach(function(svg) {
+                    var paths = svg.querySelectorAll('path');
+                    paths.forEach(function(p) {
+                        if (p.getAttribute('fill-opacity') && parseFloat(p.getAttribute('fill-opacity')) < 0.5) {
+                            p.style.pointerEvents = 'none';
+                        }
+                    });
+                });
+            }
+            setTimeout(makeRiskClickthrough, 500);
+        })();
+        </script>
+        """
+        m.get_root().html.add_child(folium.Element(risk_js))
+
     if show_chargepoints:
         buffer_group = folium.FeatureGroup(name="Buffer Zones")
         chargepoint_group = folium.FeatureGroup(name="Chargepoints")
@@ -206,13 +254,10 @@ def create_advanced_map(
             <h4 style="color: {category_colors.get(site['site_category'], '#000')}; margin-bottom: 10px;">
                 {site['charge_point_location']}
             </h4>
-            <hr style="margin: 5px 0;">
             <p><strong>Charge point Category:</strong> {site['site_category']}</p>
             <p><strong>Outages in buffer:</strong> {outage_count}</p>
             <p><strong>Average outage duration:</strong> {avg_duration:.1f} hours</p>
             <p><strong>Latest outage:</strong> {str(latest_outage)[:16] if pd.notna(latest_outage) else 'None'}</p>
-            <p><strong>Click for detailed analysis</strong></p>
-            <hr style="margin: 5px 0;">
             <p style="font-size: 0.8em; color: #666;">
                 Coordinates: {site['latitude']:.4f}, {site['longitude']:.4f}
             </p>
@@ -360,42 +405,16 @@ def create_advanced_map(
                 show=True
             ).add_to(m)
 
-    # ── Risk heatmap layer (geographic rectangles) ───────────────────────
-    if show_risk_heatmap and risk_predictions is not None and not risk_predictions.empty:
-        risk_group = folium.FeatureGroup(name='Risk Heatmap')
-
-        # Color by risk level — tied to geographic area, not pixels
-        risk_colors = {"High": "#FF0000", "Medium": "#FFD700", "Low": "#00AA00"}
-        risk_opacity = {"High": 0.35, "Medium": 0.25, "Low": 0.15}
-        cell_size = 0.005  # half of 0.01° grid cell
-
-        for _, row in risk_predictions.iterrows():
-            lat, lon = row["lat"], row["lon"]
-            level = row["risk_level"]
-            color = risk_colors.get(level, "#888888")
-            opacity = risk_opacity.get(level, 0.2)
-
-            folium.Rectangle(
-                bounds=[[lat - cell_size, lon - cell_size],
-                        [lat + cell_size, lon + cell_size]],
-                color=color,
-                fill=True,
-                fill_color=color,
-                fill_opacity=opacity,
-                weight=0,
-            ).add_to(risk_group)
-
-        risk_group.add_to(m)
-
     # ── AI Recommended Charge Sites ────────────────────────────────────
     if risk_report and hasattr(risk_report, 'recommendations'):
         ai_recs_group = folium.FeatureGroup(name="AI Recommended Sites")
 
         for rec in risk_report.recommendations:
-            if rec.location and rec.category == "Charging Station Placement":
+            if rec.location and rec.category in ("Charging Station Placement", "Chargepoint Placement"):
                 lat, lon = rec.location
 
-                # Color based on priority
+                # Color and icon based on category
+                is_v2x = rec.category == "Charging Station Placement"
                 priority_colors = {
                     "Critical": "#DC3545",
                     "High": "#FD7E14",
@@ -422,14 +441,14 @@ def create_advanced_map(
                 </div>
                 """
 
-                # Star marker for AI recommendations
+                # Bolt for V2X, plug for chargepoint
                 folium.Marker(
                     location=[lat, lon],
                     popup=folium.Popup(popup_html, max_width=300),
                     tooltip=f"{rec.title}",
                     icon=folium.Icon(
-                        color="red" if rec.priority == "Critical" else "orange",
-                        icon="star",
+                        color="red" if is_v2x else "blue",
+                        icon="bolt" if is_v2x else "plug",
                         prefix="fa"
                     )
                 ).add_to(ai_recs_group)
@@ -472,7 +491,7 @@ def create_advanced_map(
             ).add_to(live_group)
         live_group.add_to(m)
 
-    # Add pin marker and 2-mile buffer for clicked location
+    # Add pin marker and 2-mile buffer for clicked location (clickthrough)
     if clicked_lat is not None and clicked_lng is not None:
         pin_label = clicked_site_name if clicked_site_name else "📍 Clicked Location"
 
@@ -486,14 +505,17 @@ def create_advanced_map(
             fillOpacity=0.1,
             weight=2,
             dash_array='5, 5',
+            interactive=False,
         ).add_to(m)
 
-        # Add pin marker
+        # Add pin marker using DivIcon so it's clickthrough
         folium.Marker(
             location=[clicked_lat, clicked_lng],
-            popup=folium.Popup(f"<b>{pin_label}</b><br>📍 {clicked_lat:.4f}, {clicked_lng:.4f}", max_width=250),
-            tooltip=pin_label,
-            icon=folium.Icon(color="red", icon="map-pin", prefix="fa")
+            icon=folium.DivIcon(
+                html=f'<div style="font-size:24px;pointer-events:none;">📍</div>',
+                icon_size=(30, 30),
+                icon_anchor=(15, 30),
+            ),
         ).add_to(m)
 
     # Add layer control

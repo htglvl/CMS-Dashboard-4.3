@@ -65,8 +65,8 @@ def _compute_risk_predictions(_outages_hash, model_choice, _outages_len):
     return predict_cells(rf_model, features)
 
 
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def _build_recommendations(_pred_hash, _outages_len):
+    """Build recommendations (no Streamlit cache — generate_report_cached handles its own caching)."""
     from advanced_charts.recommendation_engine import generate_report_cached
     outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
     sites_df = pd.read_csv("data/all_charging_sites.csv", low_memory=False)
