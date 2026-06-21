@@ -33,7 +33,7 @@ def _ts(msg, t0):
     return t1
 
 
-def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=False, risk_predictions=None, risk_model_choice="Random Forest"):
+def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=False, risk_predictions=None, risk_model_choice="Random Forest", clicked_lat=None, clicked_lng=None):
     """Display dynamic charts based on selected site."""
 
     t_total = time.time()
@@ -43,10 +43,36 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
     chart_generator = _get_chart_generator(filtered_outages, charging_sites)
     t0 = _ts("Chart generator (cached)", t0)
 
-    t_inner = time.time()
-    site_outages, site_info = chart_generator.get_site_specific_data(site_name)
-    _ts(f"  get_site_outages ({len(site_outages)} outages)", t_inner)
-    t0 = _ts(f"get_site_specific_data total", t0)
+    # Check if site_name is a valid charging site
+    is_custom_location = site_name.startswith("📍 Location")
+
+    if is_custom_location and clicked_lat is not None and clicked_lng is not None:
+        # Custom location - create fake site_info with clicked coordinates
+        site_info = pd.Series({
+            'charge_point_location': site_name,
+            'latitude': clicked_lat,
+            'longitude': clicked_lng,
+            'site_category': 'Custom Location'
+        })
+        # Find outages near clicked location
+        if not filtered_outages.empty:
+            out_lat = np.radians(filtered_outages['latitude'].values)
+            out_lon = np.radians(filtered_outages['longitude'].values)
+            click_lat_rad = np.radians(clicked_lat)
+            click_lon_rad = np.radians(clicked_lng)
+            dlat = out_lat - click_lat_rad
+            dlon = out_lon - click_lon_rad
+            a = np.sin(dlat / 2) ** 2 + np.cos(click_lat_rad) * np.cos(out_lat) * np.sin(dlon / 2) ** 2
+            distances_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
+            site_outages = filtered_outages[distances_km <= 3.218].copy()
+        else:
+            site_outages = pd.DataFrame()
+    else:
+        # Valid charging site
+        t_inner = time.time()
+        site_outages, site_info = chart_generator.get_site_specific_data(site_name)
+        _ts(f"  get_site_outages ({len(site_outages)} outages)", t_inner)
+        t0 = _ts("get_site_specific_data total", t0)
 
     st.markdown(f"## Detailed Analysis: **{site_name}**")
 

@@ -334,6 +334,8 @@ def main():
                         is_dark=data["is_dark"],
                         risk_predictions=data["risk_predictions"],
                         risk_model_choice=filters["risk_model_choice"],
+                        clicked_lat=st.session_state.get("clicked_lat"),
+                        clicked_lng=st.session_state.get("clicked_lng"),
                     )
             t_charts = _ts("display_dynamic_charts", t_charts)
 
