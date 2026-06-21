@@ -15,7 +15,7 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows how often outages happen over time and whether they're getting more frequent.",
         )
         freq_chart = chart_generator.create_frequency_timeline(site_outages, site_name)
-        st.plotly_chart(freq_chart, width='stretch')
+        st.plotly_chart(freq_chart, width='stretch', key="freq_timeline")
 
     with col2:
         st.caption(
@@ -24,4 +24,4 @@ def render_frequency_timeline(chart_generator, site_outages, site_name):
                  "Shows the trend of impact severity over time.",
         )
         hours_chart = chart_generator.create_customer_hours_timeline(site_outages, site_name)
-        st.plotly_chart(hours_chart, width='stretch')
+        st.plotly_chart(hours_chart, width='stretch', key="hours_timeline")
