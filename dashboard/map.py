@@ -179,8 +179,10 @@ def create_advanced_map(
         dt_arr = None
 
     if show_chargepoints:
+        buffer_group = folium.FeatureGroup(name="Buffer Zones")
         chargepoint_group = folium.FeatureGroup(name="Chargepoints")
     else:
+        buffer_group = None
         chargepoint_group = None
 
     for site_idx, (idx, site) in enumerate(charging_sites.iterrows()):
@@ -219,6 +221,21 @@ def create_advanced_map(
 
         marker_size = max(8, min(25, outage_count + 5))
 
+        # Add 2-mile buffer FIRST (below markers)
+        if show_buffers and buffer_group is not None:
+            folium.Circle(
+                location=[site['latitude'], site['longitude']],
+                radius=3218,  # 2 miles in meters
+                color=category_colors.get(site['site_category'], '#000000'),
+                fill=True,
+                fillColor=category_colors.get(site['site_category'], '#000000'),
+                fillOpacity=0.08,
+                weight=1,
+                dash_array='5, 5',
+                interactive=False,  # Click-through
+            ).add_to(buffer_group)
+
+        # Add chargepoint marker SECOND (above buffer)
         folium.CircleMarker(
             location=[site['latitude'], site['longitude']],
             radius=marker_size,
@@ -230,20 +247,9 @@ def create_advanced_map(
             tooltip=f"{site['charge_point_location']} ({site['site_category']})"
         ).add_to(chargepoint_group)
 
-        # Add 2-mile buffer visualization (click-through)
-        if show_buffers:
-            folium.Circle(
-                location=[site['latitude'], site['longitude']],
-                radius=3218,  # 2 miles in meters
-                color=category_colors.get(site['site_category'], '#000000'),
-                fill=True,
-                fillColor=category_colors.get(site['site_category'], '#000000'),
-                fillOpacity=0.08,
-                weight=1,
-                dash_array='5, 5',
-                interactive=False,  # Click-through - doesn't block markers
-            ).add_to(chargepoint_group)
-
+    # Add buffer group first (below), then chargepoint group (above)
+    if buffer_group is not None:
+        buffer_group.add_to(m)
     if chargepoint_group is not None:
         chargepoint_group.add_to(m)
 
