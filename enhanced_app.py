@@ -278,14 +278,17 @@ def main():
             last_object = map_data.get('last_object_clicked')
             clicked_site = None
 
+            print(f"[CLICK] last_object_clicked: {last_object}")
+
             if last_object and isinstance(last_object, dict):
                 properties = last_object.get('properties', {})
                 tooltip = properties.get('tooltip', '')
+                print(f"[CLICK] tooltip: '{tooltip}'")
 
                 # Check if tooltip has chargepoint format: "Site Name (Category)"
                 if tooltip and '(' in tooltip and ')' in tooltip:
                     clicked_site = tooltip.split(' (')[0]
-                    print(f"[CLICK] Chargepoint: {clicked_site}")
+                    print(f"[CLICK] Chargepoint detected: {clicked_site}")
 
             # Store coordinates and site name
             if clicked_site:
@@ -296,6 +299,7 @@ def main():
                     st.session_state.pin_lat = float(site['latitude'])
                     st.session_state.pin_lng = float(site['longitude'])
                     st.session_state.selected_site = clicked_site
+                    print(f"[CLICK] Selected site: {clicked_site}")
                 else:
                     st.session_state.pin_lat = clicked_lat
                     st.session_state.pin_lng = clicked_lng
