@@ -360,27 +360,32 @@ def create_advanced_map(
                 show=True
             ).add_to(m)
 
-    # ── Risk heatmap layer (smooth) ─────────────────────────────────────
+    # ── Risk heatmap layer (geographic rectangles) ───────────────────────
     if show_risk_heatmap and risk_predictions is not None and not risk_predictions.empty:
-        from folium.plugins import HeatMap
+        risk_group = folium.FeatureGroup(name='Risk Heatmap')
 
-        # Convert risk levels to numeric weights for smooth heatmap
-        risk_weights = {"High": 3.0, "Medium": 2.0, "Low": 1.0}
-        heat_data = [
-            [row["lat"], row["lon"], risk_weights.get(row["risk_level"], 1.0)]
-            for _, row in risk_predictions.iterrows()
-        ]
+        # Color by risk level — tied to geographic area, not pixels
+        risk_colors = {"High": "#FF0000", "Medium": "#FFD700", "Low": "#00AA00"}
+        risk_opacity = {"High": 0.35, "Medium": 0.25, "Low": 0.15}
+        cell_size = 0.005  # half of 0.01° grid cell
 
-        if heat_data:
-            HeatMap(
-                heat_data,
-                name='Risk Heatmap',
-                min_opacity=0.3,
-                max_zoom=18,
-                radius=20,
-                blur=15,
-                gradient={0.4: 'green', 0.65: 'yellow', 1: 'red'}
-            ).add_to(m)
+        for _, row in risk_predictions.iterrows():
+            lat, lon = row["lat"], row["lon"]
+            level = row["risk_level"]
+            color = risk_colors.get(level, "#888888")
+            opacity = risk_opacity.get(level, 0.2)
+
+            folium.Rectangle(
+                bounds=[[lat - cell_size, lon - cell_size],
+                        [lat + cell_size, lon + cell_size]],
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=opacity,
+                weight=0,
+            ).add_to(risk_group)
+
+        risk_group.add_to(m)
 
     # ── AI Recommended Charge Sites ────────────────────────────────────
     if risk_report and hasattr(risk_report, 'recommendations'):
