@@ -16,6 +16,7 @@ from dashboard.app_logic import discover_datasets, prepare_app_data, load_data
 from dashboard.sidebar import render_sidebar, setup_autorefresh, maybe_fetch_outage_data
 from dashboard.map import create_advanced_map
 from dashboard.chart_display import display_dynamic_charts
+from dashboard.click_processor import process_map_click
 from dashboard.metrics import render_ai_dashboard
 from dashboard.live_incidents import render_live_incidents
 
@@ -265,47 +266,46 @@ def main():
             interactive_map,
             use_container_width=True,
             height=600,
-            returned_objects=["last_clicked", "last_object_clicked"],
+            returned_objects=["last_clicked", "last_object_clicked", "last_object_clicked_popup"],
             key="main_map",
         )
 
-        # Process click - only process NEW clicks (avoid duplicate rendering)
-        if map_data.get('last_clicked'):
-            clicked_lat = map_data['last_clicked']['lat']
-            clicked_lng = map_data['last_clicked']['lng']
+        # DEBUG: dump full map_data to see what st_folium returns
+        print(f"[DEBUG] map_data keys: {list(map_data.keys()) if map_data else 'None'}")
+        for k, v in (map_data or {}).items():
+            print(f"[DEBUG]   {k}: {v}")
+
+        # Process click — st_folium returns last_clicked for empty-map clicks
+        # and last_object_clicked for marker clicks (last_clicked is None then)
+        last_clicked = map_data.get('last_clicked')
+        last_object = map_data.get('last_object_clicked')
+
+        if last_clicked or last_object:
+            # Get coords from whichever is available
+            if last_object:
+                click_lat = last_object['lat']
+                click_lng = last_object['lng']
+            else:
+                click_lat = last_clicked['lat']
+                click_lng = last_clicked['lng']
 
             # Track if this is a new click (avoid reprocessing same click)
-            current_click = (round(clicked_lat, 6), round(clicked_lng, 6))
+            current_click = (round(click_lat, 6), round(click_lng, 6))
             last_processed = st.session_state.get("last_processed_click")
 
             if current_click != last_processed:
                 st.session_state.last_processed_click = current_click
 
-                print(f"[CLICK] New click at: ({clicked_lat}, {clicked_lng})")
+                result = process_map_click(map_data, data["charging_sites"])
 
-                # Find nearest chargepoint to clicked location
-                site_distances = np.sqrt(
-                    (data["charging_sites"]['latitude'].values - clicked_lat)**2 +
-                    (data["charging_sites"]['longitude'].values - clicked_lng)**2
-                )
-                nearest_idx = np.argmin(site_distances)
-                nearest_site = data["charging_sites"].iloc[nearest_idx]
-                nearest_dist = site_distances[nearest_idx]
+                if result:
+                    st.session_state.pin_lat = result['pin_lat']
+                    st.session_state.pin_lng = result['pin_lng']
+                    st.session_state.selected_site = result['selected_site']
+                    print(f"[CLICK] {'Chargepoint' if result['is_chargepoint'] else 'Location'}: {result['selected_site']}")
 
-                print(f"[CLICK] Nearest site: {nearest_site['charge_point_location']}, dist: {nearest_dist:.6f}")
-
-                # If click is near a chargepoint, use site name
-                # 0.05 degrees ≈ 5km — matches the visible marker click area
-                if nearest_dist < 0.05:
-                    st.session_state.pin_lat = float(nearest_site['latitude'])
-                    st.session_state.pin_lng = float(nearest_site['longitude'])
-                    st.session_state.selected_site = nearest_site['charge_point_location']
-                    print(f"[CLICK] Chargepoint: {nearest_site['charge_point_location']}")
-                else:
-                    st.session_state.pin_lat = clicked_lat
-                    st.session_state.pin_lng = clicked_lng
-                    st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
-                    print(f"[CLICK] Location: ({clicked_lat:.4f}, {clicked_lng:.4f})")
+                # Force rerun so map re-renders with pin
+                st.rerun()
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
