@@ -244,7 +244,10 @@ def main():
     with col1:
         st.subheader("Interactive Spatial Analysis")
 
-        # Create map with current pin location (from previous click)
+        # Create map placeholder
+        map_placeholder = st.empty()
+
+        # Create and render map
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
             show_chargepoints=filters["show_chargepoints"],
@@ -261,21 +264,50 @@ def main():
         )
 
         # Render map and capture click
-        map_data = st_folium(
-            interactive_map,
-            use_container_width=True,
-            height=600,
-            returned_objects=["last_clicked"],
-            key="main_map",
-        )
+        with map_placeholder:
+            map_data = st_folium(
+                interactive_map,
+                use_container_width=True,
+                height=600,
+                returned_objects=["last_clicked"],
+                key="main_map",
+            )
 
-        # Process click - store coordinates for NEXT rerun
+        # Process click and update map with pin
         if map_data.get('last_clicked'):
             clicked_lat = map_data['last_clicked']['lat']
             clicked_lng = map_data['last_clicked']['lng']
+
+            # Store click coordinates
             st.session_state.pin_lat = clicked_lat
             st.session_state.pin_lng = clicked_lng
             st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
+
+            # Recreate map with pin
+            interactive_map_with_pin = create_advanced_map(
+                data["charging_sites"], data["filtered_outages"],
+                show_chargepoints=filters["show_chargepoints"],
+                show_buffers=filters["show_buffers"],
+                show_heatmap=filters["show_heatmap"],
+                selected_categories=filters["selected_categories"],
+                live_incidents=data["live_incidents"],
+                risk_predictions=data["risk_predictions"],
+                show_risk_heatmap=filters["show_risk_heatmap"],
+                risk_report=data["risk_report"],
+                clicked_lat=clicked_lat,
+                clicked_lng=clicked_lng,
+                clicked_site_name=st.session_state.selected_site,
+            )
+
+            # Update map with pin
+            with map_placeholder:
+                st_folium(
+                    interactive_map_with_pin,
+                    use_container_width=True,
+                    height=600,
+                    returned_objects=["last_clicked"],
+                    key="main_map_with_pin",
+                )
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
