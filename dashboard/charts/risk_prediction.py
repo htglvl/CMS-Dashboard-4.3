@@ -21,7 +21,7 @@ def _cached_feature_importance(model, model_name: str):
     return _fi_cache[model_name]
 
 
-def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice):
+def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice, clicked_lat=None, clicked_lng=None):
     """Render ML-predicted risk, probability breakdown, and top features."""
     st.markdown("ML-based Risk Prediction")
 
@@ -33,7 +33,11 @@ def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model
         st.info("Risk predictions not available.")
         return
 
-    site_lat, site_lon = site_info['latitude'], site_info['longitude']
+    # Use clicked coordinates if provided, otherwise use site coordinates
+    if clicked_lat is not None and clicked_lng is not None:
+        site_lat, site_lon = clicked_lat, clicked_lng
+    else:
+        site_lat, site_lon = site_info['latitude'], site_info['longitude']
 
     # Vectorised haversine
     lat1 = np.radians(site_lat)

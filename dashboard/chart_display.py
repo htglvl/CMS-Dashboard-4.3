@@ -112,7 +112,7 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
         t0 = _ts("Tab 4: Rule Insights", t0)
 
     with tab5:
-        render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice)
+        render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice, clicked_lat, clicked_lng)
         t0 = _ts("Tab 5: Risk Prediction", t0)
 
     _ts(f"TOTAL", t_total)
