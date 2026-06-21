@@ -131,7 +131,6 @@ def render_sidebar(charging_sites, outages):
         "iqr_multiplier": iqr_multiplier,
         "significance_quantile": significance_quantile,
         "show_chargepoints": True,  # Always show
-        "show_buffers": True,  # Always show, toggleable via layer control
         "show_heatmap": True,  # Always show
         "refresh_interval_min": refresh_interval_min,
         "show_live_incidents": show_live_incidents,

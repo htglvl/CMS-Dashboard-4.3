@@ -248,8 +248,8 @@ def main():
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
             risk_report=data["risk_report"],
-            clicked_lat=st.session_state.get("clicked_lat"),
-            clicked_lng=st.session_state.get("clicked_lng"),
+            clicked_lat=st.session_state.get("pin_lat"),
+            clicked_lng=st.session_state.get("pin_lng"),
             clicked_site_name=st.session_state.get("selected_site"),
         )
         t_map = _ts("create_advanced_map", t_map)
@@ -272,101 +272,38 @@ def main():
             # Log click coordinates to console
             print(f"[MAP CLICK] Lat: {clicked_lat}, Lng: {clicked_lng}")
 
-            # Process click (fast - just numpy calculation)
-            t_click = time.time()
+            # Find nearest charging site
             data["charging_sites"]['distance'] = np.sqrt(
                 (data["charging_sites"]['latitude'] - clicked_lat)**2 +
                 (data["charging_sites"]['longitude'] - clicked_lng)**2
             )
             nearest_site = data["charging_sites"].loc[data["charging_sites"]['distance'].idxmin()]
-            t_click = _ts("process click", t_click)
+            is_on_site = nearest_site['distance'] < 0.01  # ~1km threshold
 
-            # Determine if we're inside buffer zone
-            is_in_buffer = nearest_site['distance'] < 0.05
-
-            # Store coordinates for pin placement
-            if is_in_buffer:
-                # Inside buffer - use charging site coordinates for pin
-                st.session_state.clicked_lat = nearest_site['latitude']
-                st.session_state.clicked_lng = nearest_site['longitude']
-            else:
-                # Outside buffer - use clicked coordinates for pin
-                st.session_state.clicked_lat = clicked_lat
-                st.session_state.clicked_lng = clicked_lng
-
-            # Find nearest risk prediction using Haversine
-            if data["risk_predictions"] is not None and not data["risk_predictions"].empty:
-                # Use charging site coordinates if in buffer, otherwise use clicked coordinates
-                if is_in_buffer:
-                    risk_lat = nearest_site['latitude']
-                    risk_lng = nearest_site['longitude']
-                else:
-                    risk_lat = clicked_lat
-                    risk_lng = clicked_lng
-
-                # Haversine distance calculation
-                lat1 = np.radians(risk_lat)
-                lon1 = np.radians(risk_lng)
-                lat2 = np.radians(data["risk_predictions"]['lat'].values)
-                lon2 = np.radians(data["risk_predictions"]['lon'].values)
-                dlat = lat2 - lat1
-                dlon = lon2 - lon1
-                a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
-                risk_dists_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
-
-                nearest_risk_idx = risk_dists_km.argmin()
-                nearest_risk = data["risk_predictions"].iloc[nearest_risk_idx]
-                st.session_state.clicked_risk = {
-                    'risk_level': nearest_risk['risk_level'],
-                    'confidence': nearest_risk['confidence'],
-                    'prob_high': nearest_risk.get('prob_high', 0),
-                    'prob_medium': nearest_risk.get('prob_medium', 0),
-                    'prob_low': nearest_risk.get('prob_low', 0),
-                    'distance_km': risk_dists_km[nearest_risk_idx],
-                }
-            else:
-                st.session_state.clicked_risk = None
-
-            # Determine display name and coordinates to use
-            if is_in_buffer:
+            # Set display name and coordinates
+            if is_on_site:
                 st.session_state.selected_site = nearest_site['charge_point_location']
-                st.session_state.use_site_coords = True  # Use charging site coordinates
+                st.session_state.pin_lat = nearest_site['latitude']
+                st.session_state.pin_lng = nearest_site['longitude']
             else:
                 st.session_state.selected_site = f"📍 Location ({clicked_lat:.4f}, {clicked_lng:.4f})"
-                st.session_state.use_site_coords = False  # Use clicked coordinates
+                st.session_state.pin_lat = clicked_lat
+                st.session_state.pin_lng = clicked_lng
 
         # Show selected site if exists
         if st.session_state.get("selected_site"):
-            site_name = st.session_state.selected_site
-            st.success(f"**{site_name}**")
+            st.success(f"**{st.session_state.selected_site}**")
 
-            # Show loading spinner only for the charts section
-            t_charts = time.time()
-            charts_container = st.container()
-            with charts_container:
-                with st.spinner("📊 Loading analysis..."):
-                    # Pass coordinates based on whether we're in buffer zone or not
-                    if st.session_state.get("use_site_coords", True):
-                        # Inside buffer zone - use charging site coordinates
-                        display_dynamic_charts(
-                            st.session_state.selected_site,
-                            data["charging_sites"], data["filtered_outages"],
-                            is_dark=data["is_dark"],
-                            risk_predictions=data["risk_predictions"],
-                            risk_model_choice=filters["risk_model_choice"],
-                        )
-                    else:
-                        # Outside buffer zone - use clicked coordinates
-                        display_dynamic_charts(
-                            st.session_state.selected_site,
-                            data["charging_sites"], data["filtered_outages"],
-                            is_dark=data["is_dark"],
-                            risk_predictions=data["risk_predictions"],
-                            risk_model_choice=filters["risk_model_choice"],
-                            clicked_lat=st.session_state.get("clicked_lat"),
-                            clicked_lng=st.session_state.get("clicked_lng"),
-                        )
-            t_charts = _ts("display_dynamic_charts", t_charts)
+            # Show advanced charts
+            display_dynamic_charts(
+                st.session_state.selected_site,
+                data["charging_sites"], data["filtered_outages"],
+                is_dark=data["is_dark"],
+                risk_predictions=data["risk_predictions"],
+                risk_model_choice=filters["risk_model_choice"],
+                clicked_lat=st.session_state.get("pin_lat"),
+                clicked_lng=st.session_state.get("pin_lng"),
+            )
 
     with col2:
         # ── Right panel with tabs: Dashboard / AI Chat ────────────────────

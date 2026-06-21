@@ -180,10 +180,8 @@ def create_advanced_map(
 
     if show_chargepoints:
         chargepoint_group = folium.FeatureGroup(name="Chargepoints")
-        buffer_group = folium.FeatureGroup(name="2-Mile Buffer Zones", show=False)
     else:
         chargepoint_group = None
-        buffer_group = None
 
     for site_idx, (idx, site) in enumerate(charging_sites.iterrows()):
         if chargepoint_group is None:
@@ -232,24 +230,8 @@ def create_advanced_map(
             tooltip=f"{site['charge_point_location']} ({site['site_category']})"
         ).add_to(chargepoint_group)
 
-        # Add buffer zones to separate layer
-        if show_buffers and buffer_group is not None:
-            folium.Circle(
-                location=[site['latitude'], site['longitude']],
-                radius=3218,  # 2 miles in meters
-                color=category_colors.get(site['site_category'], '#000000'),
-                fill=True,
-                fillColor=category_colors.get(site['site_category'], '#000000'),
-                fillOpacity=0.1,
-                weight=2,
-                dash_array='5, 5',
-                tooltip=f"2-mile buffer: {site['charge_point_location']}"
-            ).add_to(buffer_group)
-
     if chargepoint_group is not None:
         chargepoint_group.add_to(m)
-    if buffer_group is not None:
-        buffer_group.add_to(m)
 
     # Add search bar using OpenStreetMap Nominatim API
     search_html = """
