@@ -1,0 +1,16 @@
+{
+  "name": "@cms-dashboard/openclaw-plugin",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "OpenClaw plugin for CMS Grid Resilience Dashboard — risk queries, outage analysis, charging site lookups, and incident notifications.",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    }
+  },
+  "dependencies": {
+    "typebox": "^1.3.0"
+  }
+}
