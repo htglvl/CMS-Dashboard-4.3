@@ -55,8 +55,8 @@ RF_MODEL_PATH = MODELS_DIR / "rf_model.pkl"
 XGB_MODEL_PATH = MODELS_DIR / "xgb_model.pkl"
 FEATURES_CACHE = Path(__file__).parent.parent / "data" / "grid_features_cache.pkl"
 
-# Grid cell size in degrees (~0.01° ≈ 1 km at UK latitudes)
-CELL_SIZE = 0.01
+# Grid cell size in degrees (~0.02° ≈ 2 km at UK latitudes)
+CELL_SIZE = 0.02
 
 # Risk class labels
 RISK_LABELS = ["Low", "Medium", "High"]
@@ -271,7 +271,7 @@ def build_training_samples(outages: pd.DataFrame,
                            feature_months: int = 12,
                            prediction_months: int = 3,
                            step_months: int = 1,
-                           start_year: int = 2015,
+                           start_year: int = 2000,
                            cell_size: float = CELL_SIZE) -> pd.DataFrame:
     """Build training data using a sliding window approach.
 
@@ -547,10 +547,11 @@ def load_models():
 
 
 def _train_and_save():
-    """Train both models using sliding-window temporal data and save to disk.
+    """Train both models using walk-forward validation and save to disk.
 
     Uses 12-month feature windows, 3-month prediction windows, 1-month step.
-    Temporal split: last 12 months of windows = test set.
+    Walk-forward: 5 chronological folds, train on past, validate on future.
+    Final production models trained on ALL data.
     """
     outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
     log.info("Training models on %d outage records...", len(outages))
@@ -561,26 +562,60 @@ def _train_and_save():
         log.error("No training samples generated — check data range")
         return
 
-    # Temporal split: last 12 months of cutoff dates = test
+    # Split into 5 chronological folds by cutoff_date
     cutoff_dates = samples["cutoff_date"].sort_values().unique()
-    test_cutoff = cutoff_dates[-12] if len(cutoff_dates) > 12 else cutoff_dates[len(cutoff_dates) // 2]
-    train_mask = samples["cutoff_date"] < test_cutoff
+    n_folds = 5
+    fold_edges = np.array_split(np.arange(len(cutoff_dates)), n_folds)
+    fold_cutoffs = [cutoff_dates[edges[-1]] for edges in fold_edges]
 
-    train_data = samples[train_mask]
-    test_data = samples[~train_mask]
+    log.info("Walk-forward validation with %d folds", n_folds)
+    log.info("Cutoff dates range: %s to %s", cutoff_dates[0], cutoff_dates[-1])
 
-    X_train, y_train = get_xy(train_data)
-    X_test, y_test = get_xy(test_data)
+    # Walk-forward: train on folds 0..k-1, validate on fold k
+    rf_metrics = []
+    xgb_metrics = []
 
-    log.info("Train: %d samples, Test: %d samples (split at %s)", len(train_data), len(test_data), test_cutoff)
-    log.info("Risk distribution (train):\n%s", train_data["risk_level"].value_counts().to_string())
+    for k in range(1, n_folds):
+        train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1]
+        val_mask = (samples["cutoff_date"] > fold_cutoffs[k - 1]) & \
+                   (samples["cutoff_date"] <= fold_cutoffs[k])
 
-    rf_model = train_random_forest(X_train, y_train)
-    evaluate_model(rf_model, X_test, y_test, model_name="Random Forest")
+        train_data = samples[train_mask]
+        val_data = samples[val_mask]
+
+        if train_data.empty or val_data.empty:
+            continue
+
+        X_train, y_train = get_xy(train_data)
+        X_val, y_val = get_xy(val_data)
+
+        log.info("Fold %d: train=%d, val=%d (split at %s)",
+                 k, len(train_data), len(val_data), fold_cutoffs[k - 1])
+
+        # RF
+        rf = train_random_forest(X_train, y_train)
+        rf_result = evaluate_model(rf, X_val, y_val, model_name=f"RF Fold {k}")
+        rf_metrics.append(rf_result["accuracy"])
+
+        # XGBoost
+        xgb, xgb_le = train_xgboost(X_train, y_train)
+        xgb_result = evaluate_model(xgb, X_val, y_val, xgb_le, f"XGB Fold {k}")
+        xgb_metrics.append(xgb_result["accuracy"])
+
+    # Log average metrics
+    if rf_metrics:
+        log.info("Walk-forward RF accuracy: %.3f ± %.3f", np.mean(rf_metrics), np.std(rf_metrics))
+    if xgb_metrics:
+        log.info("Walk-forward XGB accuracy: %.3f ± %.3f", np.mean(xgb_metrics), np.std(xgb_metrics))
+
+    # Train final production models on ALL data
+    log.info("Training final production models on all %d samples...", len(samples))
+    X_all, y_all = get_xy(samples)
+
+    rf_model = train_random_forest(X_all, y_all)
     get_feature_importance(rf_model, "Random Forest")
 
-    xgb_model, xgb_le = train_xgboost(X_train, y_train)
-    evaluate_model(xgb_model, X_test, y_test, xgb_le, "XGBoost")
+    xgb_model, xgb_le = train_xgboost(X_all, y_all)
     get_feature_importance(xgb_model, "XGBoost")
 
     save_models(rf_model, xgb_model, xgb_le)
@@ -588,6 +623,10 @@ def _train_and_save():
     # Save predictions using the most recent feature window
     latest_cutoff = cutoff_dates[-1]
     latest_features = samples[samples["cutoff_date"] == latest_cutoff]
+    # Only keep cells with actual data
+    has_data = latest_features[FEATURE_COLS].sum(axis=1) > 0
+    latest_features = latest_features[has_data]
+
     for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
         preds = predict_cells(model, latest_features, le)
         out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
@@ -611,6 +650,10 @@ def main():
         outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
         features = build_grid_features(outages)
         features = assign_risk_labels(features)
+
+        # Only keep cells with actual outage data
+        has_data = features[FEATURE_COLS].sum(axis=1) > 0
+        features = features[has_data]
 
         for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
             preds = predict_cells(model, features, le)

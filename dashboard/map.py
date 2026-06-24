@@ -79,6 +79,7 @@ def create_advanced_map(
     live_incidents=None,
     risk_predictions=None,
     show_risk_heatmap: bool = False,
+    confidence_threshold: float = 0.5,
     risk_report=None,
     clicked_lat=None,
     clicked_lng=None,
@@ -182,23 +183,39 @@ def create_advanced_map(
     if show_risk_heatmap and risk_predictions is not None and not risk_predictions.empty:
         risk_group = folium.FeatureGroup(name='Risk Heatmap')
 
-        risk_colors = {"High": "#FF0000", "Medium": "#FFD700", "Low": "#00AA00"}
-        risk_opacity = {"High": 0.35, "Medium": 0.25, "Low": 0.15}
-        cell_size = 0.005  # half of 0.01° grid cell
+        cell_size = 0.01  # half of 0.02° grid cell
+
+        # Gradient color function: green → yellow → red based on risk score
+        def _risk_color(prob_high, prob_medium):
+            # Blend: green (low) → yellow (medium) → red (high)
+            r = int(min(255, (prob_high * 255 + prob_medium * 200)))
+            g = int(min(255, ((1 - prob_high) * 200 + prob_medium * 100)))
+            b = int(max(0, (1 - prob_high - prob_medium) * 150))
+            return f"#{r:02x}{g:02x}{b:02x}"
 
         for _, row in risk_predictions.iterrows():
             lat, lon = row["lat"], row["lon"]
-            level = row["risk_level"]
-            color = risk_colors.get(level, "#888888")
-            opacity = risk_opacity.get(level, 0.2)
+            level = row.get("risk_level", "Low")
+            confidence = row.get("confidence", 0)
+
+            # Skip low risk cells and low confidence
+            if level == "Low" or confidence < confidence_threshold:
+                continue
+
+            prob_h = row.get("prob_high", 0)
+            prob_m = row.get("prob_medium", 0)
+
+            color = _risk_color(prob_h, prob_m)
+            # Higher risk = more opaque
+            opacity = 0.4 + (prob_h * 0.4) + (prob_m * 0.15)
 
             folium.Rectangle(
                 bounds=[[lat - cell_size, lon - cell_size],
                         [lat + cell_size, lon + cell_size]],
-                color=color,
+                color=None,
                 fill=True,
                 fill_color=color,
-                fill_opacity=opacity,
+                fill_opacity=min(opacity, 0.8),
                 weight=0,
                 interactive=False,
             ).add_to(risk_group)
@@ -214,9 +231,7 @@ def create_advanced_map(
                 panes.forEach(function(svg) {
                     var paths = svg.querySelectorAll('path');
                     paths.forEach(function(p) {
-                        if (p.getAttribute('fill-opacity') && parseFloat(p.getAttribute('fill-opacity')) < 0.5) {
-                            p.style.pointerEvents = 'none';
-                        }
+                        p.style.pointerEvents = 'none';
                     });
                 });
             }

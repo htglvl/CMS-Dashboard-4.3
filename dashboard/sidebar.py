@@ -2,6 +2,8 @@
 
 import os
 import time as _time
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -121,6 +123,46 @@ def render_sidebar(charging_sites, outages):
         help="Random Forest is more explainable; XGBoost may be more accurate."
     )
 
+    show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap", value=True)
+
+    confidence_threshold = st.sidebar.slider(
+        "Minimum confidence", 0.0, 1.0, 0.5, 0.05,
+        help="Only show heatmap cells where model confidence exceeds this value"
+    )
+
+    if st.sidebar.button("🔄 Retrain Risk Models", use_container_width=True):
+        with st.spinner("Retraining models... this may take a minute"):
+            try:
+                from advanced_charts.risk_model import (
+                    _train_and_save, invalidate_features_cache,
+                    load_models, build_grid_features, assign_risk_labels,
+                    predict_cells, MODELS_DIR,
+                )
+                import pandas as pd
+
+                # Retrain
+                invalidate_features_cache()
+                _train_and_save()
+
+                # Regenerate full grid predictions
+                rf_model, xgb_model, xgb_le = load_models()
+                outages = pd.read_csv(
+                    Path(__file__).parent.parent / "data" / "df_cleaned.csv",
+                    parse_dates=["incident_date_time"],
+                )
+                features = build_grid_features(outages)
+                features = assign_risk_labels(features)
+                for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
+                    preds = predict_cells(model, features, le)
+                    out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
+                    preds.to_csv(out_path, index=False)
+
+                st.sidebar.success("✅ Models retrained!")
+                st.toast("Risk models retrained successfully.", icon="🧠")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"❌ Retrain failed: {e}")
+
     return {
         "years": years,
         "daytime_only": daytime_only,
@@ -138,7 +180,8 @@ def render_sidebar(charging_sites, outages):
         "live_refresh_min": live_refresh_min,
         "live_refresh_label": live_refresh_label,
         "risk_model_choice": risk_model_choice,
-        "show_risk_heatmap": True,  # Always show risk heatmap
+        "show_risk_heatmap": show_risk_heatmap,
+        "confidence_threshold": confidence_threshold,
     }
 
 

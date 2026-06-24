@@ -11,7 +11,7 @@ import streamlit as st
 from data.fetch_live_incidents import fetch_live_incidents
 from advanced_charts.risk_model import (
     build_grid_features_cached, assign_risk_labels,
-    load_models as load_risk_models, predict_cells,
+    load_models as load_risk_models, predict_cells, FEATURE_COLS,
 )
 from dashboard.sidebar import apply_filters
 
@@ -49,15 +49,16 @@ def _load_risk_models_cached():
 
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
 def _compute_risk_predictions(_outages_hash, model_choice, _outages_len):
-    """Compute risk predictions using the most recent 12 months of data."""
+    """Compute risk predictions using the full dataset."""
     outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
 
-    # Use the most recent 12 months for feature computation
-    max_date = outages_df["incident_date_time"].max()
-    start_date = max_date - pd.DateOffset(months=12)
+    from advanced_charts.risk_model import build_grid_features, FEATURE_COLS
+    features = build_grid_features(outages_df)
 
-    from advanced_charts.risk_model import build_grid_features
-    features = build_grid_features(outages_df, start_date=start_date)
+    # Only keep cells with actual outage data
+    has_data = features[FEATURE_COLS].sum(axis=1) > 0
+    features = features[has_data]
+
     features = assign_risk_labels(features)
     rf_model, xgb_model, xgb_le = _load_risk_models_cached()
     if model_choice == "XGBoost":

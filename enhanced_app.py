@@ -261,6 +261,7 @@ def main():
             live_incidents=data["live_incidents"],
             risk_predictions=data["risk_predictions"],
             show_risk_heatmap=filters["show_risk_heatmap"],
+            confidence_threshold=filters.get("confidence_threshold", 0.5),
             risk_report=data["risk_report"],
             clicked_lat=st.session_state.get("pin_lat"),
             clicked_lng=st.session_state.get("pin_lng"),
