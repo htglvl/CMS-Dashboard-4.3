@@ -67,6 +67,8 @@ nul
 # Streamlit
 .streamlit/
 
+node_modules/
+
 data/*
 
 !data/*.py
