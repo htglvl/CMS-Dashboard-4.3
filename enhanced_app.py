@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from dashboard.app_logic import discover_datasets, prepare_app_data, load_data
+from dashboard.app_logic import discover_datasets, prepare_app_data, load_data, load_flexibility_tenders
 from dashboard.sidebar import render_sidebar, setup_autorefresh, maybe_fetch_outage_data
 from dashboard.map import create_advanced_map
 from dashboard.chart_display import display_dynamic_charts
@@ -171,6 +171,10 @@ def main():
         st.session_state.selected_site = None
     if "last_popup_html" not in st.session_state:
         st.session_state.last_popup_html = None
+    if "flex_selected_substation" not in st.session_state:
+        st.session_state.flex_selected_substation = None
+    if "flex_page_index" not in st.session_state:
+        st.session_state.flex_page_index = 0
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
@@ -223,6 +227,14 @@ def main():
         return
     t0 = _ts(f"load_data ({len(outages)} outages)", t0)
 
+    # ── Load flexibility tenders ─────────────────────────────────────────
+    flex_geojson_path = os.path.join(dataset_dir, "flexibility_tenders.geojson")
+    flex_mtime = os.path.getmtime(flex_geojson_path) if os.path.exists(flex_geojson_path) else 0
+    flex_result = load_flexibility_tenders(flex_geojson_path, flex_mtime)
+    flex_gdf = flex_result[0] if flex_result else None
+    flex_grouped = flex_result[1] if flex_result else None
+    t0 = _ts("load_flexibility_tenders", t0)
+
     # ── Sidebar controls ──────────────────────────────────────────────────
     filters = render_sidebar(charging_sites, outages)
     t0 = _ts("render_sidebar", t0)
@@ -273,6 +285,7 @@ def main():
             clicked_lat=st.session_state.get("pin_lat"),
             clicked_lng=st.session_state.get("pin_lng"),
             clicked_site_name=st.session_state.get("selected_site"),
+            flexibility_tenders=flex_gdf,
         )
 
         # Render map
@@ -301,6 +314,24 @@ def main():
         print(f"[INFO-SECTION] session pin_lat: {st.session_state.get('pin_lat')}")
         print(f"[INFO-SECTION] session selected_site: {st.session_state.get('selected_site')}")
 
+        # ── Flexibility tender click detection ───────────────────────────
+        _is_flex_click = popup_html and 'class="flex-tender"' in str(popup_html)
+        if _is_flex_click:
+            import re
+            _m = re.search(r'data-substation="([^"]+)"', str(popup_html))
+            if _m:
+                _clicked_sub = _m.group(1)
+                if _clicked_sub != st.session_state.flex_selected_substation:
+                    st.session_state.flex_selected_substation = _clicked_sub
+                    st.session_state.flex_page_index = 0
+                    # Clear chargepoint selection
+                    st.session_state.pin_lat = None
+                    st.session_state.pin_lng = None
+                    st.session_state.selected_site = None
+                    st.session_state.last_popup_html = None
+                    print(f"[FLEX-CLICK] Selected substation: {_clicked_sub}")
+                    st.rerun()
+
         if last_clicked or last_object:
             # Get coords from whichever is available
             if last_object:
@@ -325,6 +356,9 @@ def main():
                     st.session_state.pin_lat = result['pin_lat']
                     st.session_state.pin_lng = result['pin_lng']
                     st.session_state.selected_site = result['selected_site']
+                    # Clear flexibility tender selection when clicking elsewhere
+                    st.session_state.flex_selected_substation = None
+                    st.session_state.flex_page_index = 0
                     # Persist popup HTML across reruns
                     if popup_html:
                         st.session_state.last_popup_html = popup_html
@@ -345,6 +379,72 @@ def main():
             st.markdown(effective_popup, unsafe_allow_html=True)
         else:
             print("[INFO-SECTION] No popup to display — section skipped")
+
+        # ── Flexibility Tender detail panel ──────────────────────────────
+        if st.session_state.flex_selected_substation and flex_grouped:
+            _sub = st.session_state.flex_selected_substation
+            _records = flex_grouped.get(_sub, [])
+            if _records:
+                _total = len(_records)
+                _idx = min(st.session_state.flex_page_index, _total - 1)
+                _rec = _records[_idx]
+
+                # Header with pagination arrows
+                _hcol1, _hcol2, _hcol3 = st.columns([1, 6, 1])
+                with _hcol1:
+                    if st.button("◀", key="flex_prev"):
+                        st.session_state.flex_page_index = (_idx - 1) % _total
+                        st.rerun()
+                with _hcol2:
+                    st.markdown(
+                        f"<h4 style='text-align:center; margin:0;'>{_sub} ({_idx + 1}/{_total})</h4>",
+                        unsafe_allow_html=True,
+                    )
+                with _hcol3:
+                    if st.button("▶", key="flex_next"):
+                        st.session_state.flex_page_index = (_idx + 1) % _total
+                        st.rerun()
+
+                # Detail fields in a fixed-height scrollable container
+                _fields = [
+                    ("Substation Name", "substation_name"),
+                    ("Post Codes", "post_codes"),
+                    ("Voltage of connection (kV)", "voltage_of_connection_kv"),
+                    ("Maximum requirement (MVA)", "maximum_requirement_mva"),
+                    ("Need Type", "need_type"),
+                    ("Delivery start date", "delivery_start_date"),
+                    ("Months Required", "months_required"),
+                    ("Times required", "times_required"),
+                    ("Days required", "days_required"),
+                    ("Maximum Utilisation Price (£/MWh)", "maximum_utilisation_price_mw"),
+                    ("Estimated availability hours", "estimated_availability_hours"),
+                    ("Estimated utilisation hours", "estimated_utilisation_hours"),
+                    ("Easting", "easting"),
+                    ("Northing", "northing"),
+                    ("Lat", "lat"),
+                    ("Long", "long"),
+                    ("Period", "period"),
+                    ("Site Number", "site_number"),
+                    ("Ceiling Price (£/Period)", "ceiling_price_period"),
+                ]
+
+                _rows = ""
+                for _label, _key in _fields:
+                    _val = _rec.get(_key)
+                    if _val is None or (isinstance(_val, float) and pd.isna(_val)):
+                        _val = "—"
+                    _rows += f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td><td style='padding:4px 8px;'>{_val}</td></tr>"
+
+                st.markdown(
+                    f"""
+                    <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:4px;">
+                        <table style="width:100%; font-size:0.9em; border-collapse:collapse;">
+                            {_rows}
+                        </table>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):

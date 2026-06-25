@@ -3,6 +3,7 @@
 All functions here are pure data operations with no Streamlit UI calls.
 """
 
+import json
 import os
 import time
 import pandas as pd
@@ -38,6 +39,63 @@ def load_data(outage_file, site_file, _outage_mtime=0, _site_mtime=0):
     except Exception as e:
         st.error(f"Error loading data: {e}")
         return None, None
+
+
+# ── Flexibility tenders (cached) ─────────────────────────────────────────
+
+@st.cache_data
+def load_flexibility_tenders(geojson_path: str, _file_mtime: float = 0):
+    """Load flexibility tender polygons from GeoJSON.
+
+    Returns
+    -------
+    tuple or None
+        (gdf, grouped_dict) where:
+        - gdf: GeoDataFrame with one row per unique substation (dissolved geometry)
+        - grouped_dict: {substation_name: [list of record dicts sorted by delivery_start_date]}
+        Returns None if the file is missing or invalid.
+    """
+    try:
+        import geopandas as gpd
+    except ImportError:
+        return None
+
+    if not os.path.exists(geojson_path):
+        return None
+
+    try:
+        gdf = gpd.read_file(geojson_path)
+        if gdf.empty:
+            return None
+
+        # Build grouped dict: substation_name -> sorted list of record dicts
+        grouped = {}
+        for _, row in gdf.iterrows():
+            name = row.get("substation_name", "Unknown")
+            record = {}
+            for col in gdf.columns:
+                if col == "geometry":
+                    continue
+                val = row[col]
+                # Convert pandas NaT/NaN to None for clean display
+                if pd.isna(val):
+                    record[col] = None
+                else:
+                    record[col] = val
+            grouped.setdefault(name, []).append(record)
+
+        # Sort each group by delivery_start_date
+        for name in grouped:
+            grouped[name].sort(
+                key=lambda r: str(r.get("delivery_start_date", ""))
+            )
+
+        # Dissolve geometries by substation_name (one polygon per substation)
+        dissolved = gdf.dissolve(by="substation_name", aggfunc="first").reset_index()
+
+        return dissolved, grouped
+    except Exception:
+        return None
 
 
 # ── Risk model helpers (cached) ──────────────────────────────────────────
