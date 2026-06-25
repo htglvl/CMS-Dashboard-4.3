@@ -83,18 +83,15 @@ Layout:
 - Fields displayed as key-value pairs matching the user's specified format
 - Pagination updates `flex_page_index` in session state
 
-### Sidebar Toggle
+### Layer Toggle
 
-Add a checkbox in the sidebar to show/hide the Flexibility Tenders layer:
-- `filters["show_flexibility_tenders"]` — default True
-- Follows the same pattern as `show_heatmap`, `show_risk_heatmap`, etc.
+No sidebar checkbox. The Flexibility Tenders layer is toggled via the Folium map's LayerControl overlay (same as Risk Heatmap, Buffer Zones, etc.). The layer is added to a `folium.FeatureGroup(name="Flexibility Tenders")` which automatically appears in the LayerControl.
 
 ## Files to Modify
 
 1. **`dashboard/app_logic.py`** — add `load_flexibility_tenders()` function
 2. **`dashboard/map.py`** — add `flexibility_tenders` parameter and GeoJson layer rendering
 3. **`enhanced_app.py`** — load data, pass to map, handle clicks, render info panel with pagination
-4. **`dashboard/sidebar.py`** — add "Flexibility Tenders" toggle checkbox
 
 ## Polygon Coloring
 
