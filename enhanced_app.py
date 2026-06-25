@@ -328,7 +328,7 @@ def main():
                     st.session_state.pin_lat = None
                     st.session_state.pin_lng = None
                     st.session_state.selected_site = None
-                    st.session_state.last_popup_html = None
+                    st.session_state.last_popup_html = popup_html
                     print(f"[FLEX-CLICK] Selected substation: {_clicked_sub}")
                     st.rerun()
 
