@@ -80,6 +80,11 @@ st.markdown("""
 [data-testid="stStatusWidget"] {
     width: 100% !important;
 }
+
+/* Hide heading anchor link buttons */
+h1 > a, h2 > a, h3 > a {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -164,6 +169,8 @@ def main():
         st.session_state.pin_lng = None
     if "selected_site" not in st.session_state:
         st.session_state.selected_site = None
+    if "last_popup_html" not in st.session_state:
+        st.session_state.last_popup_html = None
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
@@ -286,6 +293,13 @@ def main():
         # and last_object_clicked for marker clicks (last_clicked is None then)
         last_clicked = map_data.get('last_clicked')
         last_object = map_data.get('last_object_clicked')
+        popup_html = map_data.get('last_object_clicked_popup')
+
+        print(f"[INFO-SECTION] last_clicked: {last_clicked is not None}")
+        print(f"[INFO-SECTION] last_object: {last_object is not None}")
+        print(f"[INFO-SECTION] popup_html type: {type(popup_html)}, value: {repr(popup_html)[:200]}")
+        print(f"[INFO-SECTION] session pin_lat: {st.session_state.get('pin_lat')}")
+        print(f"[INFO-SECTION] session selected_site: {st.session_state.get('selected_site')}")
 
         if last_clicked or last_object:
             # Get coords from whichever is available
@@ -300,6 +314,8 @@ def main():
             current_click = (round(click_lat, 6), round(click_lng, 6))
             last_processed = st.session_state.get("last_processed_click")
 
+            print(f"[CLICK-DEBUG] current_click: {current_click}, last_processed: {last_processed}")
+
             if current_click != last_processed:
                 st.session_state.last_processed_click = current_click
 
@@ -309,10 +325,26 @@ def main():
                     st.session_state.pin_lat = result['pin_lat']
                     st.session_state.pin_lng = result['pin_lng']
                     st.session_state.selected_site = result['selected_site']
+                    # Persist popup HTML across reruns
+                    if popup_html:
+                        st.session_state.last_popup_html = popup_html
                     print(f"[CLICK] {'Chargepoint' if result['is_chargepoint'] else 'Location'}: {result['selected_site']}")
+                    print(f"[CLICK] popup_html saved: {repr(popup_html)[:200]}")
 
                 # Force rerun so map re-renders with pin
                 st.rerun()
+
+        # ── Info section — mirrors the map popup content ────────────────
+        # Use live popup_html from map_data, fall back to persisted session state
+        effective_popup = popup_html or st.session_state.get("last_popup_html")
+        print(f"[INFO-SECTION] effective_popup: {repr(effective_popup)[:200]}")
+        print(f"[INFO-SECTION] will render: {bool(effective_popup)}")
+
+        if effective_popup:
+            st.subheader("📍 Site Info")
+            st.markdown(effective_popup, unsafe_allow_html=True)
+        else:
+            print("[INFO-SECTION] No popup to display — section skipped")
 
         # Show selected site and charts
         if st.session_state.get("selected_site"):
