@@ -1,11 +1,19 @@
 {
   "id": "cms-dashboard",
   "name": "CMS Dashboard Tools",
-  "description": "Grid resilience analysis tools — risk predictions, outage queries, charging site lookups, live incidents, and AI recommendations.",
+  "description": "Grid resilience analysis tools for the CMS Dashboard",
   "version": "1.0.0",
-  "activation": { "onStartup": true },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
   "contracts": {
     "tools": [
+      "geocode",
       "query_risk",
       "query_outages",
       "get_live_incidents",
@@ -15,21 +23,5 @@
       "summarize_district",
       "check_new_incidents"
     ]
-  },
-  "configSchema": {
-    "type": "object",
-    "properties": {
-      "pythonPath": {
-        "type": "string",
-        "description": "Path to the Python executable (default: 'python')",
-        "default": "python"
-      },
-      "toolsDir": {
-        "type": "string",
-        "description": "Absolute path to the tools/ directory",
-        "default": ""
-      }
-    },
-    "additionalProperties": false
   }
 }

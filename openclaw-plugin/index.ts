@@ -1,39 +1,62 @@
 import { Type } from "typebox";
-import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
+import { execSync } from "node:child_process";
 import path from "node:path";
 
-const execFileAsync = promisify(execFile);
+// Hardcoded project path - update this if the project moves
+const PROJECT_ROOT = "D:\\LANCASTER\\UNI\\AI PLACEMENT\\CyberMoor\\CMS Dashboard 4.3";
+const TOOLS_DIR = path.join(PROJECT_ROOT, "tools");
 
-export default definePluginEntry({
+/** Run a Python tool script and return its stdout. */
+function runPythonTool(toolName: string, args: string[] = []): string {
+  const scriptPath = path.join(TOOLS_DIR, `${toolName}.py`);
+  const argStr = args.join(" ");
+  const command = `python "${scriptPath}" ${argStr}`;
+
+  try {
+    const stdout = execSync(command, {
+      encoding: "utf-8",
+      timeout: 120_000,
+      cwd: PROJECT_ROOT,
+    });
+    return stdout.trim();
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message, tool: toolName });
+  }
+}
+
+export default defineToolPlugin({
   id: "cms-dashboard",
   name: "CMS Dashboard Tools",
   description: "Grid resilience analysis tools for the CMS Dashboard",
+  version: "1.0.0",
 
-  register(api) {
-    /** Run a Python tool script and return its stdout. */
-    async function runPythonTool(toolName: string, args: string[] = []): Promise<string> {
-      const config = api.getConfig() as any;
-      const pythonPath = config?.pythonPath || "python";
-      const toolsDir = config?.toolsDir || path.join(process.cwd(), "tools");
-      const scriptPath = path.join(toolsDir, `${toolName}.py`);
-
-      try {
-        const { stdout, stderr } = await execFileAsync(pythonPath, [scriptPath, ...args], {
-          timeout: 120_000,
-          maxBuffer: 10 * 1024 * 1024,
-        });
-        if (stderr) console.error(`[${toolName}] stderr:`, stderr);
-        return stdout.trim();
-      } catch (err: any) {
-        return JSON.stringify({ error: err.message, tool: toolName });
-      }
-    }
+  tools: (tool) => [
+    // ── geocode ─────────────────────────────────────────────────────────
+    tool({
+      name: "geocode",
+      label: "Geocode Location",
+      description:
+        "Convert a place name, address, or postcode to latitude/longitude coordinates. Use this FIRST when a user mentions a location by name.",
+      parameters: Type.Object({
+        query: Type.String({
+          description: "Place name, address, or postcode (e.g. 'Lancaster', 'LA1 1YW', 'Kendal')",
+        }),
+        limit: Type.Optional(
+          Type.Number({ description: "Max number of results to return (default: 3)", default: 3 })
+        ),
+      }),
+      async execute({ query, limit }) {
+        const args: string[] = ["--query", query];
+        if (limit) args.push("--limit", String(limit));
+        return runPythonTool("geocode", args);
+      },
+    }),
 
     // ── query_risk ──────────────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "query_risk",
+      label: "Query Risk",
       description:
         "Query ML risk predictions for a location (lat/lon) or district name. Returns risk level, confidence, and probability scores.",
       parameters: Type.Object({
@@ -42,25 +65,28 @@ export default definePluginEntry({
         district: Type.Optional(Type.String({ description: "District name (e.g. 'Lancaster')" })),
         top: Type.Optional(Type.Number({ description: "Number of results", default: 10 })),
       }),
-      async execute(_id, params) {
+      async execute({ lat, lon, district, top }) {
         const args: string[] = [];
-        if (params.lat !== undefined && params.lon !== undefined) {
-          args.push("--lat", String(params.lat), "--lon", String(params.lon));
+        if (lat !== undefined && lon !== undefined) {
+          args.push("--lat", String(lat), "--lon", String(lon));
         }
-        if (params.district) args.push("--district", params.district);
-        if (params.top) args.push("--top", String(params.top));
-        const result = await runPythonTool("query_risk", args);
-        return { content: [{ type: "text", text: result }] };
+        if (district) args.push("--district", district);
+        if (top) args.push("--top", String(top));
+        return runPythonTool("query_risk", args);
       },
-    });
+    }),
 
     // ── query_outages ───────────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "query_outages",
+      label: "Query Outages",
       description:
-        "Query historic outage records (309k+). Filter by district, year, cause, or minimum duration.",
+        "Query historic outage records (309k+). Filter by district, location (lat/lon with radius), year, cause, or minimum duration.",
       parameters: Type.Object({
         district: Type.Optional(Type.String({ description: "District name" })),
+        lat: Type.Optional(Type.Number({ description: "Latitude for proximity search" })),
+        lon: Type.Optional(Type.Number({ description: "Longitude for proximity search" })),
+        radius: Type.Optional(Type.Number({ description: "Search radius in km (default: 15)", default: 15 })),
         year: Type.Optional(Type.Number({ description: "Year filter" })),
         cause: Type.Optional(Type.String({ description: "Outage cause category" })),
         min_duration: Type.Optional(Type.Number({ description: "Minimum duration in hours" })),
@@ -72,33 +98,36 @@ export default definePluginEntry({
           })
         ),
       }),
-      async execute(_id, params) {
+      async execute({ district, lat, lon, radius, year, cause, min_duration, top, sort }) {
         const args: string[] = [];
-        if (params.district) args.push("--district", params.district);
-        if (params.year !== undefined) args.push("--year", String(params.year));
-        if (params.cause) args.push("--cause", params.cause);
-        if (params.min_duration !== undefined) args.push("--min-duration", String(params.min_duration));
-        if (params.top) args.push("--top", String(params.top));
-        if (params.sort) args.push("--sort", params.sort);
-        const result = await runPythonTool("query_outages", args);
-        return { content: [{ type: "text", text: result }] };
+        if (district) args.push("--district", district);
+        if (lat !== undefined) args.push("--lat", String(lat));
+        if (lon !== undefined) args.push("--lon", String(lon));
+        if (radius !== undefined) args.push("--radius", String(radius));
+        if (year !== undefined) args.push("--year", String(year));
+        if (cause) args.push("--cause", cause);
+        if (min_duration !== undefined) args.push("--min-duration", String(min_duration));
+        if (top) args.push("--top", String(top));
+        if (sort) args.push("--sort", sort);
+        return runPythonTool("query_outages", args);
       },
-    });
+    }),
 
     // ── get_live_incidents ───────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "get_live_incidents",
+      label: "Live Incidents",
       description: "Retrieve current active power incidents from the ENW live incident feed.",
       parameters: Type.Object({}),
-      async execute(_id, _params) {
-        const result = await runPythonTool("get_live_incidents");
-        return { content: [{ type: "text", text: result }] };
+      async execute() {
+        return runPythonTool("get_live_incidents");
       },
-    });
+    }),
 
     // ── get_recommendations ─────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "get_recommendations",
+      label: "Recommendations",
       description:
         "Get AI-generated recommendations for V2X placement, chargepoint placement, grid resilience, or all.",
       parameters: Type.Object({
@@ -109,17 +138,17 @@ export default definePluginEntry({
           })
         ),
       }),
-      async execute(_id, params) {
+      async execute({ type }) {
         const args: string[] = [];
-        if (params.type) args.push("--type", params.type);
-        const result = await runPythonTool("get_recommendations", args);
-        return { content: [{ type: "text", text: result }] };
+        if (type) args.push("--type", type);
+        return runPythonTool("get_recommendations", args);
       },
-    });
+    }),
 
     // ── query_charging_sites ────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "query_charging_sites",
+      label: "Charging Sites",
       description:
         "Look up EV charging sites. Filter by category or find sites near a coordinate.",
       parameters: Type.Object({
@@ -129,21 +158,21 @@ export default definePluginEntry({
         radius: Type.Optional(Type.Number({ description: "Search radius in km", default: 5 })),
         top: Type.Optional(Type.Number({ description: "Number of results", default: 10 })),
       }),
-      async execute(_id, params) {
+      async execute({ category, near_lat, near_lon, radius, top }) {
         const args: string[] = [];
-        if (params.category) args.push("--category", params.category);
-        if (params.near_lat !== undefined) args.push("--near-lat", String(params.near_lat));
-        if (params.near_lon !== undefined) args.push("--near-lon", String(params.near_lon));
-        if (params.radius !== undefined) args.push("--radius", String(params.radius));
-        if (params.top) args.push("--top", String(params.top));
-        const result = await runPythonTool("query_charging_sites", args);
-        return { content: [{ type: "text", text: result }] };
+        if (category) args.push("--category", category);
+        if (near_lat !== undefined) args.push("--near-lat", String(near_lat));
+        if (near_lon !== undefined) args.push("--near-lon", String(near_lon));
+        if (radius !== undefined) args.push("--radius", String(radius));
+        if (top) args.push("--top", String(top));
+        return runPythonTool("query_charging_sites", args);
       },
-    });
+    }),
 
     // ── get_wiki ────────────────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "get_wiki",
+      label: "Wiki",
       description:
         "Retrieve dashboard documentation and wiki pages. Search by topic or keyword.",
       parameters: Type.Object({
@@ -163,59 +192,74 @@ export default definePluginEntry({
         search: Type.Optional(Type.String({ description: "Search keyword across all wiki pages" })),
         list: Type.Optional(Type.Boolean({ description: "List all available wiki topics" })),
       }),
-      async execute(_id, params) {
+      async execute({ topic, search, list }) {
         const args: string[] = [];
-        if (params.topic) args.push("--topic", params.topic);
-        if (params.search) args.push("--search", params.search);
-        if (params.list) args.push("--list");
-        const result = await runPythonTool("get_wiki", args);
-        return { content: [{ type: "text", text: result }] };
+        if (topic) args.push("--topic", topic);
+        if (search) args.push("--search", search);
+        if (list) args.push("--list");
+        return runPythonTool("get_wiki", args);
       },
-    });
+    }),
 
     // ── summarize_district ──────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "summarize_district",
+      label: "District Summary",
       description:
         "Full district analysis: combines risk predictions, outage history, and charging sites for a district.",
       parameters: Type.Object({
         district: Type.String({ description: "District name (e.g. 'Lancaster')" }),
       }),
-      async execute(_id, params) {
-        const result = await runPythonTool("summarize_district", ["--district", params.district]);
-        return { content: [{ type: "text", text: result }] };
+      async execute({ district }) {
+        return runPythonTool("summarize_district", ["--district", district]);
       },
-    });
+    }),
 
     // ── check_new_incidents ─────────────────────────────────────────────
-    api.registerTool({
+    tool({
       name: "check_new_incidents",
+      label: "Check Incidents",
       description:
         "Check for new incidents since the last check. Returns risk context, nearby chargepoints, and historic outage data for affected areas.",
       parameters: Type.Object({}),
-      async execute(_id, _params) {
-        const result = await runPythonTool("check_new_incidents");
-        return { content: [{ type: "text", text: result }] };
+      async execute() {
+        return runPythonTool("check_new_incidents");
       },
-    });
-
-    // ── System prompt injection on gateway start ────────────────────────
-    api.registerHook("gateway_start", async () => {
-      api.session.workflow.enqueueNextTurnInjection({
-        content: `You are a grid resilience analyst for the CMS Dashboard. You have access to tools for:
-- query_risk: ML risk predictions by location or district
-- query_outages: Historic outage records (309k+)
-- get_live_incidents: Current active power incidents
-- get_recommendations: AI-generated V2X and chargepoint placement recommendations
-- query_charging_sites: EV charging site locations
-- get_wiki: Dashboard documentation and wiki
-- summarize_district: Full district analysis (risk + outages + sites)
-- check_new_incidents: Check for new incidents and get risk context
-
-Use these tools to answer questions. Be concise and data-driven.
-When incidents occur, provide context about the affected area's risk profile and nearby infrastructure.`,
-        tag: "cms-system-prompt",
-      });
-    }, { name: "cms-system-prompt-hook" });
-  },
+    }),
+  ],
 });
+
+// System prompt injection to tell the LLM about available tools
+export const hooks = {
+  gateway_start: async (api: any) => {
+    api.session.workflow.enqueueNextTurnInjection({
+      content: `You are a grid resilience analyst for the CMS Dashboard. You have access to specialized tools for analyzing power grid data in North West England.
+
+AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
+- geocode: Convert place names to lat/lon coordinates. USE THIS FIRST when user mentions a location.
+- query_risk: Get ML risk predictions for a location (by lat/lon or district name)
+- query_outages: Query historic outage records (309k+). Supports lat/lon proximity search.
+- query_charging_sites: Find EV charging sites near a location or by category
+- get_recommendations: Get AI-generated V2X and chargepoint placement recommendations
+- get_live_incidents: Get current active power incidents
+- summarize_district: Full district analysis (risk + outages + sites)
+- get_wiki: Dashboard documentation
+- check_new_incidents: Check for new incidents
+
+WORKFLOW FOR LOCATION QUERIES:
+1. When user mentions a place name → call geocode(query="<place>") first
+2. Use returned lat/lon for subsequent tool calls
+3. Call query_risk, query_charging_sites, query_outages with the coordinates
+4. Combine results into a comprehensive answer
+
+EXAMPLE: "What's the risk in Lancaster?"
+→ geocode(query="Lancaster") → get lat/lon
+→ query_risk(lat=54.05, lon=-2.80) → get risk data
+→ query_charging_sites(near_lat=54.05, near_lon=-2.80, radius=10) → find chargers
+→ query_outages(lat=54.05, lon=-2.80, radius=15) → get outage history
+
+IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.`,
+      tag: "cms-system-prompt",
+    });
+  },
+};
