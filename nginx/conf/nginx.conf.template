@@ -45,6 +45,9 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_read_timeout 86400;
 
+            # Disable gzip so sub_filter can modify the response
+            proxy_set_header Accept-Encoding "";
+
             # Inject gateway auth token into HTML
             sub_filter '</head>' '<script>window.__OPENCLAW_NATIVE_CONTROL_AUTH__={"token":"__OCLAW_TOKEN__"};</script></head>';
             sub_filter_once on;
