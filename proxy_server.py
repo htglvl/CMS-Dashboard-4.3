@@ -145,6 +145,9 @@ async def _proxy_http(request, target_url, session):
             timeout=aiohttp.ClientTimeout(total=120),
         ) as resp:
             resp_headers = _filter_headers(dict(resp.headers))
+            # Remove encoding headers — iter_any() decompresses the body
+            resp_headers.pop("Content-Encoding", None)
+            resp_headers.pop("Content-Length", None)
 
             response = web.StreamResponse(status=resp.status, headers=resp_headers)
             await response.prepare(request)
