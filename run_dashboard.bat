@@ -14,7 +14,7 @@ REM -------------------------------------------------------
 REM  1. Create virtual environment if it doesn't exist
 REM -------------------------------------------------------
 if not exist "venv\Scripts\python.exe" (
-    echo [1/5] Creating virtual environment...
+    echo [1/6] Creating virtual environment...
     python -m venv venv
     if %errorlevel% neq 0 (
         echo ERROR: Failed to create venv. Is Python installed and in PATH?
@@ -23,13 +23,13 @@ if not exist "venv\Scripts\python.exe" (
     )
     echo      Done.
 ) else (
-    echo [1/5] Virtual environment already exists.
+    echo [1/6] Virtual environment already exists.
 )
 
 REM -------------------------------------------------------
 REM  2. Activate venv and install/update dependencies
 REM -------------------------------------------------------
-echo [2/5] Installing dependencies...
+echo [2/6] Installing dependencies...
 call venv\Scripts\activate.bat
 pip install --upgrade pip >nul 2>&1
 pip install -r requirements.txt
@@ -43,14 +43,14 @@ echo      Done.
 REM -------------------------------------------------------
 REM  3. Run daily outage fetch (incremental, skips if recent)
 REM -------------------------------------------------------
-echo [3/5] Checking for new outage data...
+echo [3/6] Checking for new outage data...
 python fetch_outages.py
 echo      Done.
 
 REM -------------------------------------------------------
 REM  4. Start OpenClaw gateway (background)
 REM -------------------------------------------------------
-echo [4/5] Starting OpenClaw gateway...
+echo [4/6] Starting OpenClaw gateway...
 start "OpenClaw Gateway" cmd /c "call venv\Scripts\activate.bat && openclaw start --plugin openclaw-plugin"
 echo      OpenClaw starting on port 18789...
 
@@ -60,7 +60,7 @@ timeout /t 3 /nobreak >nul
 REM -------------------------------------------------------
 REM  5. Start Streamlit on internal port 8502 (background)
 REM -------------------------------------------------------
-echo [5/5] Starting dashboard and proxy...
+echo [5/6] Starting dashboard and proxy...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true"
 echo      Streamlit starting on port 8502...
 
@@ -70,6 +70,7 @@ timeout /t 3 /nobreak >nul
 REM -------------------------------------------------------
 REM  6. Start reverse proxy on port 8501 (foreground)
 REM -------------------------------------------------------
+echo [6/6] Starting reverse proxy...
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
