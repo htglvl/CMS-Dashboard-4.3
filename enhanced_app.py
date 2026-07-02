@@ -138,7 +138,7 @@ def main():
         text-decoration: none;
     }
     </style>
-    <a class="openclaw-btn" href="/oclaw" target="_blank">🤖 OpenClaw AI Chat</a>
+    <a class="openclaw-btn" href="/oclaw" target="_blank" rel="noopener">🤖 OpenClaw AI Chat</a>
     """, unsafe_allow_html=True)
     st.sidebar.markdown("---")
 
