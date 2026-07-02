@@ -55,8 +55,6 @@ async def _proxy_ws(request, target_url, session):
             p.strip() for p in request.headers["Sec-WebSocket-Protocol"].split(",")
         ]
 
-    client_ws = web.WebSocketResponse()
-
     async def forward_ws(source, dest):
         try:
             async for msg in source:
@@ -72,6 +70,7 @@ async def _proxy_ws(request, target_url, session):
             if not dest.closed:
                 await dest.close()
 
+    # Step 1: Connect to upstream FIRST to discover accepted protocol
     try:
         upstream_ws = await session.ws_connect(
             ws_target,
@@ -82,6 +81,13 @@ async def _proxy_ws(request, target_url, session):
         logger.error(f"WebSocket upstream connection failed: {e}")
         return web.Response(status=502, text="WebSocket proxy error")
 
+    # Step 2: Create client WS with the protocol upstream accepted
+    accepted_protocol = upstream_ws.protocol
+    client_ws = web.WebSocketResponse(
+        protocols=[accepted_protocol] if accepted_protocol else ()
+    )
+
+    # Step 3: Prepare client WS — now it knows which protocol to accept
     try:
         await client_ws.prepare(request)
     except Exception as e:
