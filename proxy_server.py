@@ -5,21 +5,23 @@ Routes:
     /           -> 302 redirect to /home
     /home/*     -> Streamlit on localhost:8502
     /oclaw/*    -> OpenClaw on localhost:18789
+    /_stcore/*  -> Streamlit on localhost:8502 (internal endpoints)
 """
 
 import sys
+import asyncio
 import logging
-from urllib.parse import urljoin
+from urllib.parse import urlparse
 
-import requests
+import aiohttp
+from aiohttp import web, ClientSession, WSMsgType
 
-# Suppress noisy request logs from waitress in development
-logging.getLogger("waitress").setLevel(logging.WARNING)
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 STREAMLIT_URL = "http://localhost:8502"
 OPENCLAW_URL = "http://localhost:18789"
 PROXY_PORT = 8501
-MAX_BODY_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # Hop-by-hop headers that should not be forwarded
 HOP_BY_HOP = frozenset({
@@ -30,103 +32,124 @@ HOP_BY_HOP = frozenset({
 
 
 def _filter_headers(headers):
-    """Remove hop-by-hop headers from a dict of headers."""
+    """Remove hop-by-hop headers."""
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP}
 
 
-def _build_target_url(base, path_info, query_string):
-    """Construct the upstream URL from path info and query string."""
-    url = urljoin(base, path_info)
+def _get_target_url(base, path, query_string):
+    """Construct target URL."""
+    url = base + path
     if query_string:
         url += "?" + query_string
     return url
 
 
-def app(environ, start_response):
-    """WSGI application that proxies requests to the appropriate backend."""
-    path = environ.get("PATH_INFO", "/")
-    query = environ.get("QUERY_STRING", "")
+async def _proxy_ws(request, target_url):
+    """Proxy a WebSocket connection."""
+    ws_target = target_url.replace("http://", "ws://").replace("https://", "wss://")
 
-    # ── Root redirect ────────────────────────────────────────────────────
+    async with ClientSession() as session:
+        try:
+            async with session.ws_connect(
+                ws_target,
+                headers=_filter_headers(dict(request.headers)),
+            ) as upstream_ws:
+                client_ws = web.WebSocketResponse()
+                await client_ws.prepare(request)
+
+                async def forward_ws(source, dest):
+                    async for msg in source:
+                        if msg.type == WSMsgType.TEXT:
+                            await dest.send_str(msg.data)
+                        elif msg.type == WSMsgType.BINARY:
+                            await dest.send_bytes(msg.data)
+                        elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                            break
+                    await dest.close()
+
+                # Forward in both directions concurrently
+                await asyncio.gather(
+                    forward_ws(upstream_ws, client_ws),
+                    forward_ws(client_ws, upstream_ws),
+                )
+        except Exception as e:
+            logger.error(f"WebSocket proxy error: {e}")
+            return web.Response(status=502, text="WebSocket proxy error")
+
+    return client_ws
+
+
+async def _proxy_http(request, target_url):
+    """Proxy an HTTP request."""
+    method = request.method
+    headers = _filter_headers(dict(request.headers))
+
+    # Set proper Host header for the target
+    parsed = urlparse(target_url)
+    headers["Host"] = parsed.netloc
+
+    body = await request.read()
+
+    async with ClientSession() as session:
+        try:
+            async with session.request(
+                method=method,
+                url=target_url,
+                headers=headers,
+                data=body if body else None,
+                allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as resp:
+                resp_headers = _filter_headers(dict(resp.headers))
+                resp_body = await resp.read()
+
+                return web.Response(
+                    status=resp.status,
+                    headers=resp_headers,
+                    body=resp_body,
+                )
+        except aiohttp.ClientConnectorError:
+            return web.Response(status=502, text="Backend service unavailable")
+        except asyncio.TimeoutError:
+            return web.Response(status=504, text="Backend service timeout")
+        except Exception as e:
+            logger.error(f"Proxy error: {e}")
+            return web.Response(status=500, text="Internal proxy error")
+
+
+async def handle_request(request):
+    """Route requests to the appropriate backend."""
+    path = request.path
+    query = request.query_string
+
+    # Root redirect
     if path == "/":
-        start_response("302 Found", [("Location", "/home")])
-        return [b""]
+        raise web.HTTPFound("/home")
 
-    # ── Route to OpenClaw ────────────────────────────────────────────────
+    # Streamlit internal endpoints (/_stcore/*, /favicon.ico)
+    if path.startswith("/_stcore") or path == "/favicon.ico":
+        target = _get_target_url(STREAMLIT_URL, path, query)
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            return await _proxy_ws(request, target)
+        return await _proxy_http(request, target)
+
+    # Route to OpenClaw
     if path.startswith("/oclaw"):
-        # OpenClaw expects the full /oclaw prefix
-        target = _build_target_url(OPENCLAW_URL, path, query)
-        return _proxy_request(environ, start_response, target)
+        target = _get_target_url(OPENCLAW_URL, path, query)
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            return await _proxy_ws(request, target)
+        return await _proxy_http(request, target)
 
-    # ── Route to Streamlit (strip /home prefix) ──────────────────────────
+    # Route to Streamlit (strip /home prefix)
     if path.startswith("/home"):
-        # Strip /home prefix — Streamlit expects to serve from /
         stripped = path[len("/home"):] or "/"
-        target = _build_target_url(STREAMLIT_URL, stripped, query)
-        return _proxy_request(environ, start_response, target)
+        target = _get_target_url(STREAMLIT_URL, stripped, query)
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            return await _proxy_ws(request, target)
+        return await _proxy_http(request, target)
 
-    # ── Fallback: redirect to /home ──────────────────────────────────────
-    start_response("302 Found", [("Location", "/home")])
-    return [b""]
-
-
-def _proxy_request(environ, start_response, target_url):
-    """Forward a WSGI request to the target URL and return the response."""
-    method = environ["REQUEST_METHOD"].upper()
-    input_stream = environ.get("wsgi.input")
-
-    # Build request headers from WSGI environ
-    headers = {}
-    for key, value in environ.items():
-        if key.startswith("HTTP_"):
-            header_name = key[5:].replace("_", "-").title()
-            headers[header_name] = value
-    if "CONTENT_TYPE" in environ:
-        headers["Content-Type"] = environ["CONTENT_TYPE"]
-    if "CONTENT_LENGTH" in environ and environ["CONTENT_LENGTH"]:
-        headers["Content-Length"] = environ["CONTENT_LENGTH"]
-
-    headers = _filter_headers(headers)
-
-    # Read request body
-    body = None
-    if input_stream:
-        content_length = int(environ.get("CONTENT_LENGTH", 0) or 0)
-        if content_length > MAX_BODY_SIZE:
-            start_response("413 Payload Too Large", [("Content-Type", "text/plain")])
-            return [b"Request body too large"]
-        if content_length > 0:
-            body = input_stream.read(content_length)
-
-    try:
-        resp = requests.request(
-            method=method,
-            url=target_url,
-            headers=headers,
-            data=body,
-            timeout=120,
-            allow_redirects=False,
-        )
-    except requests.ConnectionError:
-        start_response("502 Bad Gateway", [("Content-Type", "text/plain")])
-        return [b"Backend service unavailable"]
-    except requests.Timeout:
-        start_response("504 Gateway Timeout", [("Content-Type", "text/plain")])
-        return [b"Backend service timeout"]
-    except Exception:
-        start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
-        return [b"Internal proxy error"]
-
-    # Build response headers
-    resp_headers = []
-    for key, value in resp.headers.items():
-        if key.lower() not in HOP_BY_HOP:
-            resp_headers.append((key, value))
-
-    status_line = f"{resp.status_code} {resp.reason}"
-    start_response(status_line, resp_headers)
-
-    return [resp.content]
+    # Fallback
+    raise web.HTTPFound("/home")
 
 
 def main():
@@ -135,12 +158,14 @@ def main():
     print(f"  /         -> redirect to /home")
     print(f"  /home/*   -> {STREAMLIT_URL}")
     print(f"  /oclaw/*  -> {OPENCLAW_URL}")
+    print(f"  /_stcore  -> {STREAMLIT_URL} (WebSocket support)")
     print()
 
-    from waitress import create_server
-    server = create_server(app, host="127.0.0.1", port=PROXY_PORT)
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", handle_request)
+
     try:
-        server.run()
+        web.run_app(app, host="127.0.0.1", port=PROXY_PORT, print=None)
     except KeyboardInterrupt:
         print("\nProxy stopped.")
         sys.exit(0)
