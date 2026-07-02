@@ -127,7 +127,7 @@ def main():
             _oclaw_token = _oclaw_cfg.get("gateway", {}).get("auth", {}).get("token", "")
     except Exception:
         pass
-    _oclaw_href = f"http://localhost:8501/oclaw/#token={_oclaw_token}" if _oclaw_token else "http://localhost:8501/oclaw/"
+    _oclaw_href = f"http://localhost:8501/oclaw/?token={_oclaw_token}" if _oclaw_token else "http://localhost:8501/oclaw/"
 
     st.sidebar.markdown(f"""
     <style>
