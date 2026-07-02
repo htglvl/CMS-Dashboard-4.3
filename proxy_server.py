@@ -9,6 +9,7 @@ Routes:
 """
 
 import sys
+import os
 import asyncio
 import logging
 from urllib.parse import urlparse
@@ -35,6 +36,18 @@ def _suppress_connection_reset(loop):
 STREAMLIT_URL = "http://localhost:8502"
 OPENCLAW_URL = "http://localhost:18789"
 PROXY_PORT = 8501
+
+
+def _read_oclaw_token():
+    """Read the OpenClaw gateway token from config."""
+    import json
+    config_path = os.path.join(os.path.expanduser("~"), ".openclaw", "openclaw.json")
+    try:
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+        return cfg.get("gateway", {}).get("auth", {}).get("token", "")
+    except Exception:
+        return ""
 
 # Hop-by-hop headers that should not be forwarded
 HOP_BY_HOP = frozenset({
@@ -124,7 +137,7 @@ async def _proxy_ws(request, target_url, session):
     return client_ws
 
 
-async def _proxy_http(request, target_url, session):
+async def _proxy_http(request, target_url, session, inject_auth=False):
     """Proxy an HTTP request."""
     method = request.method
     headers = _filter_headers(dict(request.headers))
@@ -148,6 +161,30 @@ async def _proxy_http(request, target_url, session):
             # Remove encoding headers — iter_any() decompresses the body
             resp_headers.pop("Content-Encoding", None)
             resp_headers.pop("Content-Length", None)
+
+            content_type = resp.headers.get("Content-Type", "")
+            token = request.app.get("oclaw_token", "")
+
+            # For HTML responses from OpenClaw, inject auth token
+            if inject_auth and token and "text/html" in content_type:
+                body_bytes = await resp.read()
+                auth_script = (
+                    '<script>window.__OPENCLAW_NATIVE_CONTROL_AUTH__='
+                    '{"token":"' + token + '"};</script>'
+                )
+                if b"</head>" in body_bytes:
+                    body_bytes = body_bytes.replace(b"</head>", auth_script.encode() + b"</head>")
+                elif b"<head>" in body_bytes:
+                    body_bytes = body_bytes.replace(b"<head>", b"<head>" + auth_script.encode())
+                else:
+                    body_bytes = auth_script.encode() + body_bytes
+                resp_headers.pop("Content-Length", None)
+                response = web.Response(
+                    status=resp.status,
+                    headers=resp_headers,
+                    body=body_bytes,
+                )
+                return response
 
             response = web.StreamResponse(status=resp.status, headers=resp_headers)
             await response.prepare(request)
@@ -197,7 +234,7 @@ async def handle_request(request):
         target = _get_target_url(OPENCLAW_URL, stripped, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
             return await _proxy_ws(request, target, session)
-        return await _proxy_http(request, target, session)
+        return await _proxy_http(request, target, session, inject_auth=True)
 
     # Route to Streamlit (strip /home prefix)
     if path.startswith("/home"):
@@ -214,6 +251,11 @@ async def handle_request(request):
 async def on_startup(app):
     _suppress_connection_reset(asyncio.get_running_loop())
     app["session"] = ClientSession()
+    app["oclaw_token"] = _read_oclaw_token()
+    if app["oclaw_token"]:
+        logger.info("OpenClaw token loaded from config")
+    else:
+        logger.warning("No OpenClaw token found in config")
 
 
 async def on_cleanup(app):
