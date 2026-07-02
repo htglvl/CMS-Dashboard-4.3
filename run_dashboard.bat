@@ -58,8 +58,11 @@ echo [7/7] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
 timeout /t 3 /nobreak >nul
 
-REM --- 8. Start nginx reverse proxy (port 8501) ---
+REM --- 8. Generate nginx config with OpenClaw token ---
 echo [8/8] Starting nginx proxy...
+python -c "import json,os;p=os.path.expanduser(r'~\.openclaw\openclaw.json');t=json.load(open(p)).get('gateway',{}).get('auth',{}).get('token','');c=open(r'nginx\conf\nginx.conf.template').read();open(r'nginx\conf\nginx.conf','w').write(c.replace('__OCLAW_TOKEN__',t));print(f'Token injected: {t[:8]}...')"
+
+REM Start nginx
 start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
 timeout /t 2 /nobreak >nul
 
