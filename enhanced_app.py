@@ -7,6 +7,8 @@ All data logic lives in ``dashboard/app_logic.py``.
 
 import os
 import time
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -191,10 +193,45 @@ def main():
     if charging_sites is None or outages is None:
         st.error("Failed to load data. Please check file paths.")
         return
+
+    # ── Empty data guard: re-fetch if df_cleaned is empty ────────────────
+    if outages.empty:
+        st.warning("⚠️ Outage dataset is empty — re-fetching from API...")
+        try:
+            from data.fetch_outages import run_daily_fetch
+            result = run_daily_fetch(full=True)
+            if result.get("error"):
+                st.error(f"Could not re-fetch outage data: {result['error']}")
+                return
+            load_data.clear()
+            charging_sites, outages = load_data(selected_outage_file, selected_site_file, outage_mtime, site_mtime)
+            if outages is None or outages.empty:
+                st.error("Re-fetch returned empty data. Check the ENW API or API key.")
+                return
+        except (ImportError, Exception) as e:
+            st.error(f"Could not re-fetch outage data: {e}")
+            return
+
     t0 = _ts(f"load_data ({len(outages)} outages)", t0)
 
-    # ── Load flexibility tenders ─────────────────────────────────────────
+    # ── Flexibility tenders: fetch from API if missing or stale ──────────
     flex_geojson_path = os.path.join(dataset_dir, "flexibility_tenders.geojson")
+    try:
+        from advanced_charts.cache_utils import is_cache_stale
+        from data.fetch_flexibility_tenders import run_flexibility_fetch
+        if is_cache_stale(Path(flex_geojson_path)):
+            fetch_status = st.sidebar.empty()
+            fetch_status.caption("🔄 Refreshing flexibility tenders...")
+            flex_result = run_flexibility_fetch()
+            if flex_result.get("error"):
+                fetch_status.warning(f"⚠️ Flex fetch: {flex_result['error']}")
+            elif flex_result.get("fetched"):
+                fetch_status.success("✅ Flexibility tenders updated")
+            else:
+                fetch_status.empty()
+    except (ImportError, Exception):
+        pass  # graceful — continue with whatever file exists
+
     flex_mtime = os.path.getmtime(flex_geojson_path) if os.path.exists(flex_geojson_path) else 0
     flex_result = load_flexibility_tenders(flex_geojson_path, flex_mtime)
     flex_gdf = flex_result[0] if flex_result else None

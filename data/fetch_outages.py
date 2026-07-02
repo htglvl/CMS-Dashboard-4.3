@@ -394,6 +394,12 @@ def run_daily_fetch(
         invalidate_chart_data_cache()
     except ImportError:
         pass
+    try:
+        pred_cache = Path(__file__).parent / "risk_predictions_cache.pkl"
+        if pred_cache.exists():
+            pred_cache.unlink()
+    except Exception:
+        pass
 
     # Update state file with the most recent incident timestamp from the data.
     # Re-parse the column to ensure consistent datetime64 dtype (the merge

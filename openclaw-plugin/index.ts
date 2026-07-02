@@ -3,8 +3,8 @@ import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { execSync } from "node:child_process";
 import path from "node:path";
 
-// Hardcoded project path - update this if the project moves
-const PROJECT_ROOT = "D:\\LANCASTER\\UNI\\AI PLACEMENT\\CyberMoor\\CMS Dashboard 4.3";
+// Resolve project root: one level up from this plugin directory
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, "..");
 const TOOLS_DIR = path.join(PROJECT_ROOT, "tools");
 
 /** Run a Python tool script and return its stdout. */

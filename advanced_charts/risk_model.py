@@ -527,8 +527,8 @@ def save_models(rf_model, xgb_model, xgb_label_encoder):
 def load_models():
     """Load persisted models from disk.
 
-    If model files are missing, trains them from ``df_cleaned.csv`` and
-    saves them to disk before loading.
+    If model files are missing or older than 3 months, trains them from
+    ``df_cleaned.csv`` and saves them to disk before loading.
 
     Returns
     -------
@@ -536,9 +536,11 @@ def load_models():
         (rf_model, xgb_model, xgb_label_encoder)
     """
     import joblib
+    from advanced_charts.cache_utils import is_cache_stale
 
-    if not RF_MODEL_PATH.exists() or not XGB_MODEL_PATH.exists():
-        log.info("Model files not found — training from %s", DATA_FILE)
+    if (not RF_MODEL_PATH.exists() or not XGB_MODEL_PATH.exists()
+            or is_cache_stale(RF_MODEL_PATH) or is_cache_stale(XGB_MODEL_PATH)):
+        log.info("Model files missing or stale — training from %s", DATA_FILE)
         _train_and_save()
 
     rf_model = joblib.load(RF_MODEL_PATH)

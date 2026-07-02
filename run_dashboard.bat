@@ -7,29 +7,23 @@ echo  CMS Grid Resilience Dashboard - Auto Setup
 echo ================================================
 echo.
 
-REM --- Navigate to script directory ---
 cd /d "%~dp0"
 
-REM -------------------------------------------------------
-REM  1. Create virtual environment if it doesn't exist
-REM -------------------------------------------------------
+REM --- 1. Virtual environment ---
 if not exist "venv\Scripts\python.exe" (
-    echo [1/6] Creating virtual environment...
+    echo [1/7] Creating virtual environment...
     python -m venv venv
     if !errorlevel! neq 0 (
-        echo ERROR: Failed to create venv. Is Python installed and in PATH?
+        echo ERROR: Failed to create venv.
         pause
         exit /b 1
     )
-    echo      Done.
 ) else (
-    echo [1/6] Virtual environment already exists.
+    echo [1/7] Virtual environment already exists.
 )
 
-REM -------------------------------------------------------
-REM  2. Activate venv and install/update dependencies
-REM -------------------------------------------------------
-echo [2/6] Installing dependencies...
+REM --- 2. Dependencies ---
+echo [2/7] Installing dependencies...
 call venv\Scripts\activate.bat
 pip install --upgrade pip >nul 2>&1
 pip install -r requirements.txt
@@ -38,39 +32,33 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-echo      Done.
 
-REM -------------------------------------------------------
-REM  3. Run daily outage fetch (incremental, skips if recent)
-REM -------------------------------------------------------
-echo [3/6] Checking for new outage data...
-python fetch_outages.py
-echo      Done.
+REM --- 3. Fetch outage data ---
+echo [3/7] Checking for new outage data...
+python data/fetch_outages.py
 
-REM -------------------------------------------------------
-REM  4. Start OpenClaw gateway (background)
-REM -------------------------------------------------------
-echo [4/6] Starting OpenClaw gateway...
+REM --- 4. Fetch flexibility tenders ---
+echo [4/7] Checking flexibility tenders...
+python data/fetch_flexibility_tenders.py
+
+REM --- 5. Build OpenClaw plugin ---
+echo [5/7] Building OpenClaw plugin...
+cd openclaw-plugin
+call npm install >nul 2>&1
+call npm run build >nul 2>&1
+cd ..
+
+REM --- 6. Start OpenClaw gateway ---
+echo [6/7] Starting OpenClaw gateway...
 start "OpenClaw Gateway" cmd /c "call venv\Scripts\activate.bat && openclaw start --plugin openclaw-plugin"
-echo      OpenClaw starting on port 18789...
-
-REM Give OpenClaw a moment to start
 timeout /t 3 /nobreak >nul
 
-REM -------------------------------------------------------
-REM  5. Start Streamlit on internal port 8502 (background)
-REM -------------------------------------------------------
-echo [5/6] Starting Streamlit dashboard...
+REM --- 7. Start Streamlit (internal port 8502) ---
+echo [7/7] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true"
-echo      Streamlit starting on port 8502...
-
-REM Give Streamlit a moment to start
 timeout /t 3 /nobreak >nul
 
-REM -------------------------------------------------------
-REM  6. Start reverse proxy on port 8501 (foreground)
-REM -------------------------------------------------------
-echo [6/6] Starting reverse proxy...
+REM --- 8. Start reverse proxy (port 8501) ---
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home

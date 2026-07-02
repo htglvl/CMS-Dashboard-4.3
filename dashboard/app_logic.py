@@ -6,6 +6,8 @@ All functions here are pure data operations with no Streamlit UI calls.
 import json
 import os
 import time
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -108,10 +110,24 @@ def _load_risk_models_cached():
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
 def _compute_risk_predictions(_outages_hash, model_choice, _outages_len):
     """Compute risk predictions using the full dataset."""
-    outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
+    import joblib
+    from advanced_charts.cache_utils import is_cache_stale_vs_source
 
-    from advanced_charts.risk_model import build_grid_features, FEATURE_COLS
-    features = build_grid_features(outages_df)
+    pred_cache = Path("data/risk_predictions_cache.pkl")
+    source = Path("data/df_cleaned.csv")
+
+    # Try disk cache first (persists across Streamlit restarts)
+    if pred_cache.exists() and not is_cache_stale_vs_source(pred_cache, source):
+        cached = joblib.load(pred_cache)
+        if cached.get("model_choice") == model_choice:
+            return cached["predictions"]
+
+    outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
+    if outages_df.empty:
+        return pd.DataFrame(columns=["lat", "lon", "risk_level", "confidence"])
+
+    from advanced_charts.risk_model import build_grid_features_cached, FEATURE_COLS
+    features = build_grid_features_cached(outages_df)
 
     # Only keep cells with actual outage data
     has_data = features[FEATURE_COLS].sum(axis=1) > 0
@@ -120,8 +136,13 @@ def _compute_risk_predictions(_outages_hash, model_choice, _outages_len):
     features = assign_risk_labels(features)
     rf_model, xgb_model, xgb_le = _load_risk_models_cached()
     if model_choice == "XGBoost":
-        return predict_cells(xgb_model, features, xgb_le)
-    return predict_cells(rf_model, features)
+        preds = predict_cells(xgb_model, features, xgb_le)
+    else:
+        preds = predict_cells(rf_model, features)
+
+    # Save to disk cache
+    joblib.dump({"predictions": preds, "model_choice": model_choice}, pred_cache)
+    return preds
 
 
 def _build_recommendations(_pred_hash, _outages_len):
@@ -170,10 +191,15 @@ def discover_datasets(dataset_dir: str):
 # ── Orchestrator ─────────────────────────────────────────────────────────
 
 def _ensure_chart_data_cache(outages, charging_sites):
-    """Precompute chart aggregation data if the disk cache is missing."""
+    """Precompute chart aggregation data if the disk cache is missing or stale."""
     from advanced_charts.charts import CHART_DATA_FILE, precompute_chart_data
     from advanced_charts.data import SiteData
+    from advanced_charts.cache_utils import is_cache_stale_vs_source
 
+    source = Path(__file__).parent.parent / "data" / "df_cleaned.csv"
+    if CHART_DATA_FILE.exists() and not is_cache_stale_vs_source(CHART_DATA_FILE, source):
+        print(f"    [  {(time.time()-time.time()):6.1f}ms] precompute_chart_data (cached)")
+        return  # already cached and fresh
     if CHART_DATA_FILE.exists():
         return  # already cached
 
