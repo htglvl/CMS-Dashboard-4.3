@@ -117,7 +117,7 @@ def main():
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
     # ── OpenClaw AI Chat button ──────────────────────────────────────────
-    _oclaw_href = "http://localhost:8501/oclaw/"
+    _oclaw_href = "/oclaw/"
 
     st.sidebar.markdown(f"""
     <style>
