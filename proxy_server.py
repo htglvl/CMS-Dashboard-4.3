@@ -86,6 +86,8 @@ def _proxy_request(environ, start_response, target_url):
     if "CONTENT_LENGTH" in environ and environ["CONTENT_LENGTH"]:
         headers["Content-Length"] = environ["CONTENT_LENGTH"]
 
+    headers = _filter_headers(headers)
+
     # Read request body
     body = None
     if input_stream:
