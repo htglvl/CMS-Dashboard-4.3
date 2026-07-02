@@ -69,6 +69,10 @@ nul
 
 node_modules/
 
+# Regeneratable model predictions and caches
+models/predictions_*.csv
+data/risk_predictions_cache.pkl
+
 data/*
 
 !data/*.py
