@@ -79,3 +79,5 @@ data/*
 
 !data/all_charging_sites.csv
 !data/Borderlands Long List Sites Apr 26.xlsx
+nginx/nginx.exe
+nginx/logs/

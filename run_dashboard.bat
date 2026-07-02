@@ -58,7 +58,11 @@ echo [7/7] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
 timeout /t 3 /nobreak >nul
 
-REM --- 8. Start reverse proxy (port 8501) ---
+REM --- 8. Start nginx reverse proxy (port 8501) ---
+echo [8/8] Starting nginx proxy...
+start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
+timeout /t 2 /nobreak >nul
+
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
@@ -68,11 +72,14 @@ echo.
 echo  Press Ctrl+C to stop all services.
 echo.
 
-python proxy_server.py
+REM Keep running until user presses Ctrl+C
+pause >nul
 
 echo.
 echo Stopping background services...
 taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Nginx Proxy*" >nul 2>&1
+cd nginx && nginx.exe -s stop 2>nul
 echo All services stopped.
 pause
