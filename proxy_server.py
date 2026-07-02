@@ -12,7 +12,6 @@ import logging
 from urllib.parse import urljoin
 
 import requests
-from waitress import create_server
 
 # Suppress noisy request logs from waitress in development
 logging.getLogger("waitress").setLevel(logging.WARNING)
@@ -20,6 +19,7 @@ logging.getLogger("waitress").setLevel(logging.WARNING)
 STREAMLIT_URL = "http://localhost:8502"
 OPENCLAW_URL = "http://localhost:18789"
 PROXY_PORT = 8501
+MAX_BODY_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # Hop-by-hop headers that should not be forwarded
 HOP_BY_HOP = frozenset({
@@ -61,7 +61,7 @@ def app(environ, start_response):
     # ── Route to Streamlit (strip /home prefix) ──────────────────────────
     if path.startswith("/home"):
         # Strip /home prefix — Streamlit expects to serve from /
-        stripped = path[len("home"):] or "/"
+        stripped = path[len("/home"):] or "/"
         target = _build_target_url(STREAMLIT_URL, stripped, query)
         return _proxy_request(environ, start_response, target)
 
@@ -92,6 +92,9 @@ def _proxy_request(environ, start_response, target_url):
     body = None
     if input_stream:
         content_length = int(environ.get("CONTENT_LENGTH", 0) or 0)
+        if content_length > MAX_BODY_SIZE:
+            start_response("413 Payload Too Large", [("Content-Type", "text/plain")])
+            return [b"Request body too large"]
         if content_length > 0:
             body = input_stream.read(content_length)
 
@@ -101,7 +104,6 @@ def _proxy_request(environ, start_response, target_url):
             url=target_url,
             headers=headers,
             data=body,
-            stream=True,
             timeout=120,
             allow_redirects=False,
         )
@@ -111,6 +113,9 @@ def _proxy_request(environ, start_response, target_url):
     except requests.Timeout:
         start_response("504 Gateway Timeout", [("Content-Type", "text/plain")])
         return [b"Backend service timeout"]
+    except Exception:
+        start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
+        return [b"Internal proxy error"]
 
     # Build response headers
     resp_headers = []
@@ -133,7 +138,7 @@ def main():
     print()
 
     from waitress import create_server
-    server = create_server(app, host="0.0.0.0", port=PROXY_PORT)
+    server = create_server(app, host="127.0.0.1", port=PROXY_PORT)
     try:
         server.run()
     except KeyboardInterrupt:
