@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 title CMS Grid Resilience Dashboard
 
 echo ================================================
@@ -16,7 +16,7 @@ REM -------------------------------------------------------
 if not exist "venv\Scripts\python.exe" (
     echo [1/6] Creating virtual environment...
     python -m venv venv
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo ERROR: Failed to create venv. Is Python installed and in PATH?
         pause
         exit /b 1
@@ -60,7 +60,7 @@ timeout /t 3 /nobreak >nul
 REM -------------------------------------------------------
 REM  5. Start Streamlit on internal port 8502 (background)
 REM -------------------------------------------------------
-echo [5/6] Starting dashboard and proxy...
+echo [5/6] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true"
 echo      Streamlit starting on port 8502...
 
@@ -83,5 +83,8 @@ echo.
 python proxy_server.py
 
 echo.
+echo Stopping background services...
+taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
 echo All services stopped.
 pause
