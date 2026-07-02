@@ -185,7 +185,10 @@ async def handle_request(request):
     if path.startswith("/oclaw"):
         # Redirect /oclaw → /oclaw/ so relative asset paths resolve correctly
         if path == "/oclaw":
-            raise web.HTTPFound("/oclaw/")
+            redirect_url = "/oclaw/"
+            if query:
+                redirect_url += "?" + query
+            raise web.HTTPFound(redirect_url)
         # Strip /oclaw/ prefix — OpenClaw serves from /
         stripped = path[len("/oclaw"):] or "/"
         target = _get_target_url(OPENCLAW_URL, stripped, query)
