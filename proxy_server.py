@@ -19,6 +19,19 @@ from aiohttp import web, ClientSession, WSMsgType
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
+
+def _suppress_connection_reset(loop):
+    """Suppress noisy ConnectionResetError on Windows when browser closes WebSocket."""
+    default_handler = loop.default_exception_handler
+
+    def _handler(ctx):
+        exc = ctx.get("exception")
+        if isinstance(exc, ConnectionResetError):
+            return  # silently ignore
+        default_handler(ctx)
+
+    loop.set_exception_handler(_handler)
+
 STREAMLIT_URL = "http://localhost:8502"
 OPENCLAW_URL = "http://localhost:18789"
 PROXY_PORT = 8501
@@ -186,6 +199,7 @@ async def handle_request(request):
 
 
 async def on_startup(app):
+    _suppress_connection_reset(asyncio.get_running_loop())
     app["session"] = ClientSession()
 
 
