@@ -158,9 +158,10 @@ async def route(req):
             raise web.HTTPFound("/oclaw/" + ("?" + q if q else ""))
         return await http_proxy(req, t, s, oclaw=True)
 
-    # Dashboard — Streamlit serves from /home (no strip needed)
+    # Dashboard — strip /home, Streamlit serves from /
     if path.startswith("/home"):
-        t = STREAMLIT + path + ("?" + q if q else "")
+        sub = path[len("/home"):] or "/"
+        t = STREAMLIT + sub + ("?" + q if q else "")
         return await ws_proxy(req, t, s) if ws else await http_proxy(req, t, s)
 
     raise web.HTTPFound("/home")

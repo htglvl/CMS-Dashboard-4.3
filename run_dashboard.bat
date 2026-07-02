@@ -55,7 +55,7 @@ timeout /t 3 /nobreak >nul
 
 REM --- 7. Start Streamlit (internal port 8502) ---
 echo [7/7] Starting Streamlit dashboard...
-start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true --server.baseUrlPath home"
+start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true"
 timeout /t 3 /nobreak >nul
 
 REM --- 8. Start reverse proxy (port 8501) ---
