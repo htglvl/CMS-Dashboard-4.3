@@ -234,6 +234,11 @@ async def handle_request(request):
 
     # Route to OpenClaw
     if path.startswith("/oclaw"):
+        # WebSocket connections don't follow redirects — handle directly
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            stripped = path[len("/oclaw"):] or "/"
+            target = _get_target_url(OPENCLAW_URL, stripped, query)
+            return await _proxy_ws(request, target, session)
         # Redirect /oclaw → /oclaw/ so relative asset paths resolve correctly
         if path == "/oclaw":
             redirect_url = "/oclaw/"
@@ -243,8 +248,6 @@ async def handle_request(request):
         # Strip /oclaw/ prefix — OpenClaw serves from /
         stripped = path[len("/oclaw"):] or "/"
         target = _get_target_url(OPENCLAW_URL, stripped, query)
-        if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await _proxy_ws(request, target, session)
         return await _proxy_http(request, target, session, inject_auth=True)
 
     # Route to Streamlit (strip /home prefix)
