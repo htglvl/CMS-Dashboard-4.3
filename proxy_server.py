@@ -48,6 +48,13 @@ async def _proxy_ws(request, target_url, session):
     """Proxy a WebSocket connection."""
     ws_target = target_url.replace("http://", "ws://").replace("https://", "wss://")
 
+    # Extract WebSocket subprotocols from client request
+    ws_protocols = []
+    if "Sec-WebSocket-Protocol" in request.headers:
+        ws_protocols = [
+            p.strip() for p in request.headers["Sec-WebSocket-Protocol"].split(",")
+        ]
+
     client_ws = web.WebSocketResponse()
 
     async def forward_ws(source, dest):
@@ -69,6 +76,7 @@ async def _proxy_ws(request, target_url, session):
         upstream_ws = await session.ws_connect(
             ws_target,
             headers=_filter_headers(dict(request.headers)),
+            protocols=ws_protocols if ws_protocols else None,
         )
     except Exception as e:
         logger.error(f"WebSocket upstream connection failed: {e}")
@@ -151,9 +159,10 @@ async def handle_request(request):
             return await _proxy_ws(request, target, session)
         return await _proxy_http(request, target, session)
 
-    # Route to OpenClaw
+    # Route to OpenClaw (strip /oclaw prefix — OpenClaw serves from /)
     if path.startswith("/oclaw"):
-        target = _get_target_url(OPENCLAW_URL, path, query)
+        stripped = path[len("/oclaw"):] or "/"
+        target = _get_target_url(OPENCLAW_URL, stripped, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
             return await _proxy_ws(request, target, session)
         return await _proxy_http(request, target, session)
