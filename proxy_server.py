@@ -151,9 +151,12 @@ async def _proxy_http(request, target_url, session):
 
             response = web.StreamResponse(status=resp.status, headers=resp_headers)
             await response.prepare(request)
-            async for chunk in resp.content.iter_any():
-                await response.write(chunk)
-            await response.write_eof()
+            try:
+                async for chunk in resp.content.iter_any():
+                    await response.write(chunk)
+                await response.write_eof()
+            except (ConnectionResetError, ConnectionError, OSError):
+                pass  # client disconnected
             return response
     except aiohttp.ClientConnectorError:
         return web.Response(status=502, text="Backend service unavailable")
