@@ -24,11 +24,11 @@ def _suppress_connection_reset(loop):
     """Suppress noisy ConnectionResetError on Windows when browser closes WebSocket."""
     default_handler = loop.default_exception_handler
 
-    def _handler(ctx):
-        exc = ctx.get("exception")
+    def _handler(loop, context):
+        exc = context.get("exception")
         if isinstance(exc, ConnectionResetError):
             return  # silently ignore
-        default_handler(ctx)
+        default_handler(loop, context)
 
     loop.set_exception_handler(_handler)
 
@@ -171,15 +171,19 @@ async def handle_request(request):
     if path == "/":
         raise web.HTTPFound("/home")
 
-    # Streamlit internal endpoints (/_stcore/*, /favicon.ico)
-    if path.startswith("/_stcore") or path == "/favicon.ico":
+    # Streamlit internal endpoints (/_stcore/*, /component/*, /favicon.ico)
+    if path.startswith("/_stcore") or path.startswith("/component") or path == "/favicon.ico":
         target = _get_target_url(STREAMLIT_URL, path, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
             return await _proxy_ws(request, target, session)
         return await _proxy_http(request, target, session)
 
-    # Route to OpenClaw (strip /oclaw prefix — OpenClaw serves from /)
+    # Route to OpenClaw
     if path.startswith("/oclaw"):
+        # Redirect /oclaw → /oclaw/ so relative asset paths resolve correctly
+        if path == "/oclaw":
+            raise web.HTTPFound("/oclaw/")
+        # Strip /oclaw/ prefix — OpenClaw serves from /
         stripped = path[len("/oclaw"):] or "/"
         target = _get_target_url(OPENCLAW_URL, stripped, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
