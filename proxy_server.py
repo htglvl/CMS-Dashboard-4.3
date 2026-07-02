@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 def _suppress_connection_reset(loop):
     """Suppress noisy ConnectionResetError on Windows when browser closes WebSocket."""
-    default_handler = loop.default_exception_handler
+    default_handler = loop.default_exception_handler  # bound method: (context)
 
     def _handler(loop, context):
         exc = context.get("exception")
         if isinstance(exc, ConnectionResetError):
             return  # silently ignore
-        default_handler(loop, context)
+        default_handler(context)
 
     loop.set_exception_handler(_handler)
 
