@@ -44,42 +44,60 @@ def _get_target_url(base, path, query_string):
     return url
 
 
-async def _proxy_ws(request, target_url):
+async def _proxy_ws(request, target_url, session):
     """Proxy a WebSocket connection."""
     ws_target = target_url.replace("http://", "ws://").replace("https://", "wss://")
 
-    async with ClientSession() as session:
+    client_ws = web.WebSocketResponse()
+
+    async def forward_ws(source, dest):
         try:
-            async with session.ws_connect(
-                ws_target,
-                headers=_filter_headers(dict(request.headers)),
-            ) as upstream_ws:
-                client_ws = web.WebSocketResponse()
-                await client_ws.prepare(request)
+            async for msg in source:
+                if msg.type == WSMsgType.TEXT:
+                    await dest.send_str(msg.data)
+                elif msg.type == WSMsgType.BINARY:
+                    await dest.send_bytes(msg.data)
+                elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                    break
+        except Exception:
+            pass
+        finally:
+            if not dest.closed:
+                await dest.close()
 
-                async def forward_ws(source, dest):
-                    async for msg in source:
-                        if msg.type == WSMsgType.TEXT:
-                            await dest.send_str(msg.data)
-                        elif msg.type == WSMsgType.BINARY:
-                            await dest.send_bytes(msg.data)
-                        elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
-                            break
-                    await dest.close()
+    try:
+        upstream_ws = await session.ws_connect(
+            ws_target,
+            headers=_filter_headers(dict(request.headers)),
+        )
+    except Exception as e:
+        logger.error(f"WebSocket upstream connection failed: {e}")
+        return web.Response(status=502, text="WebSocket proxy error")
 
-                # Forward in both directions concurrently
-                await asyncio.gather(
-                    forward_ws(upstream_ws, client_ws),
-                    forward_ws(client_ws, upstream_ws),
-                )
-        except Exception as e:
-            logger.error(f"WebSocket proxy error: {e}")
-            return web.Response(status=502, text="WebSocket proxy error")
+    try:
+        await client_ws.prepare(request)
+    except Exception as e:
+        logger.error(f"WebSocket prepare failed: {e}")
+        await upstream_ws.close()
+        return web.Response(status=502, text="WebSocket prepare error")
+
+    try:
+        await asyncio.gather(
+            forward_ws(upstream_ws, client_ws),
+            forward_ws(client_ws, upstream_ws),
+        )
+    except Exception as e:
+        logger.error(f"WebSocket proxy error: {e}")
+    finally:
+        if not upstream_ws.closed:
+            await upstream_ws.close()
+        if not client_ws.closed:
+            await client_ws.close()
 
     return client_ws
 
 
-async def _proxy_http(request, target_url):
+async def _proxy_http(request, target_url, session):
     """Proxy an HTTP request."""
     method = request.method
     headers = _filter_headers(dict(request.headers))
@@ -90,37 +108,37 @@ async def _proxy_http(request, target_url):
 
     body = await request.read()
 
-    async with ClientSession() as session:
-        try:
-            async with session.request(
-                method=method,
-                url=target_url,
-                headers=headers,
-                data=body if body else None,
-                allow_redirects=False,
-                timeout=aiohttp.ClientTimeout(total=120),
-            ) as resp:
-                resp_headers = _filter_headers(dict(resp.headers))
-                resp_body = await resp.read()
+    try:
+        async with session.request(
+            method=method,
+            url=target_url,
+            headers=headers,
+            data=body if body else None,
+            allow_redirects=False,
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as resp:
+            resp_headers = _filter_headers(dict(resp.headers))
 
-                return web.Response(
-                    status=resp.status,
-                    headers=resp_headers,
-                    body=resp_body,
-                )
-        except aiohttp.ClientConnectorError:
-            return web.Response(status=502, text="Backend service unavailable")
-        except asyncio.TimeoutError:
-            return web.Response(status=504, text="Backend service timeout")
-        except Exception as e:
-            logger.error(f"Proxy error: {e}")
-            return web.Response(status=500, text="Internal proxy error")
+            response = web.StreamResponse(status=resp.status, headers=resp_headers)
+            await response.prepare(request)
+            async for chunk in resp.content.iter_any():
+                await response.write(chunk)
+            await response.write_eof()
+            return response
+    except aiohttp.ClientConnectorError:
+        return web.Response(status=502, text="Backend service unavailable")
+    except asyncio.TimeoutError:
+        return web.Response(status=504, text="Backend service timeout")
+    except Exception as e:
+        logger.error(f"Proxy error: {e}")
+        return web.Response(status=500, text="Internal proxy error")
 
 
 async def handle_request(request):
     """Route requests to the appropriate backend."""
     path = request.path
     query = request.query_string
+    session = request.app["session"]
 
     # Root redirect
     if path == "/":
@@ -130,26 +148,34 @@ async def handle_request(request):
     if path.startswith("/_stcore") or path == "/favicon.ico":
         target = _get_target_url(STREAMLIT_URL, path, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await _proxy_ws(request, target)
-        return await _proxy_http(request, target)
+            return await _proxy_ws(request, target, session)
+        return await _proxy_http(request, target, session)
 
     # Route to OpenClaw
     if path.startswith("/oclaw"):
         target = _get_target_url(OPENCLAW_URL, path, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await _proxy_ws(request, target)
-        return await _proxy_http(request, target)
+            return await _proxy_ws(request, target, session)
+        return await _proxy_http(request, target, session)
 
     # Route to Streamlit (strip /home prefix)
     if path.startswith("/home"):
         stripped = path[len("/home"):] or "/"
         target = _get_target_url(STREAMLIT_URL, stripped, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await _proxy_ws(request, target)
-        return await _proxy_http(request, target)
+            return await _proxy_ws(request, target, session)
+        return await _proxy_http(request, target, session)
 
     # Fallback
     raise web.HTTPFound("/home")
+
+
+async def on_startup(app):
+    app["session"] = ClientSession()
+
+
+async def on_cleanup(app):
+    await app["session"].close()
 
 
 def main():
@@ -161,7 +187,9 @@ def main():
     print(f"  /_stcore  -> {STREAMLIT_URL} (WebSocket support)")
     print()
 
-    app = web.Application()
+    app = web.Application(client_max_size=100 * 1024 * 1024)
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
     app.router.add_route("*", "/{path:.*}", handle_request)
 
     try:
