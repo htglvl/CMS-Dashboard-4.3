@@ -117,9 +117,21 @@ def main():
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
     # ── OpenClaw AI Chat button ──────────────────────────────────────────
-    st.sidebar.markdown("""
+    # Read gateway token from OpenClaw config for URL hash auth
+    import json as _json
+    _oclaw_config_path = os.path.join(os.path.expanduser("~"), ".openclaw", "openclaw.json")
+    _oclaw_token = ""
+    try:
+        with open(_oclaw_config_path, "r") as _f:
+            _oclaw_cfg = _json.load(_f)
+            _oclaw_token = _oclaw_cfg.get("gateway", {}).get("auth", {}).get("token", "")
+    except Exception:
+        pass
+    _oclaw_href = f"http://localhost:8501/oclaw/#token={_oclaw_token}" if _oclaw_token else "http://localhost:8501/oclaw/"
+
+    st.sidebar.markdown(f"""
     <style>
-    .openclaw-btn {
+    .openclaw-btn {{
         display: block;
         width: 100%;
         padding: 12px 16px;
@@ -132,13 +144,13 @@ def main():
         text-decoration: none;
         margin-bottom: 16px;
         transition: opacity 0.2s;
-    }
-    .openclaw-btn:hover {
+    }}
+    .openclaw-btn:hover {{
         opacity: 0.85;
         text-decoration: none;
-    }
+    }}
     </style>
-    <a class="openclaw-btn" href="http://localhost:18789/" target="_blank" rel="noopener">🤖 OpenClaw AI Chat</a>
+    <a class="openclaw-btn" href="{_oclaw_href}" target="_blank" rel="noopener">🤖 OpenClaw AI Chat</a>
     """, unsafe_allow_html=True)
     st.sidebar.markdown("---")
 
