@@ -146,6 +146,12 @@ async def _proxy_http(request, target_url, session, inject_auth=False):
     parsed = urlparse(target_url)
     headers["Host"] = parsed.netloc
 
+    # For OpenClaw requests, inject auth token header
+    if inject_auth:
+        token = request.app.get("oclaw_token", "")
+        if token and "Authorization" not in headers:
+            headers["Authorization"] = f"Bearer {token}"
+
     body = await request.read()
 
     try:
@@ -161,6 +167,11 @@ async def _proxy_http(request, target_url, session, inject_auth=False):
             # Remove encoding headers — iter_any() decompresses the body
             resp_headers.pop("Content-Encoding", None)
             resp_headers.pop("Content-Length", None)
+
+            # For OpenClaw responses, strip CSP so we can inject auth token
+            if inject_auth:
+                resp_headers.pop("Content-Security-Policy", None)
+                resp_headers.pop("X-Content-Security-Policy", None)
 
             content_type = resp.headers.get("Content-Type", "")
             token = request.app.get("oclaw_token", "")
@@ -214,8 +225,8 @@ async def handle_request(request):
     if path == "/":
         raise web.HTTPFound("/home")
 
-    # Streamlit internal endpoints (/_stcore/*, /component/*, /favicon.ico)
-    if path.startswith("/_stcore") or path.startswith("/component") or path == "/favicon.ico":
+    # Streamlit internal endpoints (/_stcore/*, /component/*, /static/*, /favicon.ico)
+    if path.startswith("/_stcore") or path.startswith("/component") or path.startswith("/static") or path == "/favicon.ico":
         target = _get_target_url(STREAMLIT_URL, path, query)
         if request.headers.get("Upgrade", "").lower() == "websocket":
             return await _proxy_ws(request, target, session)
