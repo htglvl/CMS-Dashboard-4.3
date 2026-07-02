@@ -96,68 +96,6 @@ def _ts(msg, t0):
     return t1
 
 
-def _render_ai_chat(risk_predictions, outages, charging_sites):
-    """Render the AI chat interface using Streamlit chat components."""
-    from advanced_charts.recommendation_engine import RecommendationEngine
-
-    # Initialize session state
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
-
-    # Welcome message if no messages yet
-    if not st.session_state.chat_messages:
-        st.markdown("""
-        <div style="text-align: center; padding: 20px; color: #666;">
-            <p style="font-size: 40px; margin-bottom: 10px;">🤖</p>
-            <p style="font-weight: bold; margin-bottom: 15px;">Ask the AI about:</p>
-            <ul style="text-align: left; display: inline-block;">
-                <li>Outage risk areas</li>
-                <li>Charger placement</li>
-                <li>Community impact</li>
-                <li>Investment priorities</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Display existing messages
-    for message in st.session_state.chat_messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # Chat input
-    if prompt := st.chat_input("Ask about risk, chargers, or community impact...", key="ai_chat_tab"):
-        # Add user message
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
-
-        # Display user message
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Get AI response with typing indicator
-        with st.chat_message("assistant"):
-            # Show typing indicator
-            typing_placeholder = st.empty()
-            typing_placeholder.markdown("🤖 *Thinking...*")
-
-            engine = RecommendationEngine(risk_predictions, outages, charging_sites)
-            response = engine.ask(prompt)
-
-            # Replace typing indicator with response
-            typing_placeholder.empty()
-            st.markdown(response)
-
-        # Add response to history
-        st.session_state.chat_messages.append({"role": "assistant", "content": response})
-        st.rerun()
-
-    # Clear button
-    if st.session_state.chat_messages:
-        st.markdown("---")
-        if st.button("🗑️ Clear Chat", key="clear_chat_tab"):
-            st.session_state.chat_messages = []
-            st.rerun()
-
-
 def main():
     t_main = time.time()
     print("\n=== Dashboard main() ===")
@@ -177,6 +115,32 @@ def main():
         st.session_state.flex_page_index = 0
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
+
+    # ── OpenClaw AI Chat button ──────────────────────────────────────────
+    st.sidebar.markdown("""
+    <style>
+    .openclaw-btn {
+        display: block;
+        width: 100%;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white !important;
+        text-align: center;
+        font-size: 1.1em;
+        font-weight: 700;
+        border-radius: 8px;
+        text-decoration: none;
+        margin-bottom: 16px;
+        transition: opacity 0.2s;
+    }
+    .openclaw-btn:hover {
+        opacity: 0.85;
+        text-decoration: none;
+    }
+    </style>
+    <a class="openclaw-btn" href="/oclaw" target="_blank">🤖 OpenClaw AI Chat</a>
+    """, unsafe_allow_html=True)
+    st.sidebar.markdown("---")
 
     # ── Dataset selection (sidebar) ───────────────────────────────────────
     st.sidebar.header("Dataset Selection")
@@ -460,19 +424,13 @@ def main():
             )
 
     with col2:
-        # ── Right panel with tabs: Dashboard / AI Chat ────────────────────
-        tab_dashboard, tab_chat = st.tabs(["📊 Dashboard", "🤖 AI Chat"])
-
-        with tab_dashboard:
-            render_live_incidents(data["live_incidents"], filters["show_live_incidents"], filters["live_refresh_label"])
-            render_ai_dashboard(
-                data["filtered_outages"], data["outages"], filters["years"],
-                data["charging_sites"], filters["selected_categories"],
-                data["risk_report"], data["risk_predictions"],
-            )
-
-        with tab_chat:
-            _render_ai_chat(data["risk_predictions"], data["outages"], data["charging_sites"])
+        # ── Right panel: Dashboard ───────────────────────────────────────
+        render_live_incidents(data["live_incidents"], filters["show_live_incidents"], filters["live_refresh_label"])
+        render_ai_dashboard(
+            data["filtered_outages"], data["outages"], filters["years"],
+            data["charging_sites"], filters["selected_categories"],
+            data["risk_report"], data["risk_predictions"],
+        )
 
 
 if __name__ == "__main__":
