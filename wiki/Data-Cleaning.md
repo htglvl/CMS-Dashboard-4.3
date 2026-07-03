@@ -7,7 +7,10 @@ The dashboard requires data in specific formats. This page explains how to clean
 ## Quick Start
 
 ```bash
-conda activate cms
+# Activate virtual environment
+venv\Scripts\activate
+
+# Run cleaning dashboard
 streamlit run charge_point_cleaning/data_cleaning_dashboard.py --server.port 8502
 ```
 

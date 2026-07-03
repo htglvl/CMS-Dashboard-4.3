@@ -1,0 +1,24 @@
+{
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "none",
+      "token": "__GATEWAY_TOKEN__"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "allowedOrigins": ["*"]
+    }
+  },
+  "plugins": {
+    "entries": {
+      "cms-dashboard": {
+        "enabled": true,
+        "pythonPath": "__PYTHON_PATH__",
+        "toolsDir": "__TOOLS_DIR__"
+      }
+    }
+  }
+}

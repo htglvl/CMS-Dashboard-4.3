@@ -3,11 +3,22 @@ setlocal enabledelayedexpansion
 title CMS Grid Resilience Dashboard
 
 echo ================================================
-echo  CMS Grid Resilience Dashboard - Auto Setup
+echo  CMS Grid Resilience Dashboard
 echo ================================================
 echo.
 
 cd /d "%~dp0"
+
+REM --- Check if setup has been run ---
+if not exist ".env" (
+    if exist ".env.example" (
+        echo ERROR: .env file not found.
+        echo Please run setup.bat first, or copy .env.example to .env
+        echo and fill in your API keys.
+        pause
+        exit /b 1
+    )
+)
 
 REM --- 1. Virtual environment ---
 if not exist "venv\Scripts\python.exe" (

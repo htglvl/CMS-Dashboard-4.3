@@ -124,8 +124,10 @@ python data/fetch_outages.py --output df_cleaned.parquet
 2. Create Basic Task → "Daily Outage Fetch"
 3. Trigger: Daily at a quiet time (e.g. 06:00)
 4. Action: Start a program
-   - Program: `D:\LANCASTER\UNI\AI PLACEMENT\CyberMoor\CMS Dashboard 4.3\run_daily_fetch.bat`
-   - Start in: `D:\LANCASTER\UNI\AI PLACEMENT\CyberMoor\CMS Dashboard 4.3\`
+   - Program: `<project_root>\run_daily_fetch.bat`
+   - Start in: `<project_root>\`
+
+Replace `<project_root>` with the actual path where you installed the CMS Dashboard.
 
 ### Manual run
 Double-click `run_daily_fetch.bat` or run:
@@ -177,6 +179,31 @@ from data.fetch_live_incidents import fetch_live_incidents
 df = fetch_live_incidents()
 # Returns DataFrame with active incidents, or empty DataFrame if none
 ```
+
+---
+
+## Flexibility Tenders
+
+The `fetch_flexibility_tenders.py` script downloads flexibility tender data from the ENW API.
+
+### Dataset
+
+| Property | Value |
+|---|---|
+| Dataset ID | `flexibility-tenders` |
+| Title | SP ENW - Flexibility Tender Opportunities |
+| Output | `flexibility_tenders.geojson` |
+| State file | `.last_fetch_flexibility` |
+
+### Usage
+
+```bash
+python data/fetch_flexibility_tenders.py
+```
+
+### Dashboard Integration
+
+Flexibility tender locations are displayed on the dashboard map as a separate layer, showing areas where grid flexibility services are being procured.
 
 ---
 

@@ -24,16 +24,18 @@ This project analyses unplanned power outages across the Electricity North West 
 CMS Dashboard 4.3/
 │
 ├── enhanced_app.py              # Main entry point (slim orchestrator)
+├── setup.bat                    # First-time setup script
 ├── run_dashboard.bat            # Launch dashboard
 ├── run_cleaning_dashboard.bat   # Launch chargepoint cleaning utility
 ├── requirements.txt             # Python dependencies
-├── .env                         # API key (not tracked by git)
+├── .env.example                 # API key template (copy to .env)
 ├── .gitignore                   # Git ignore rules
 │
 ├── advanced_charts/             # LOGIC: analysis + ML + recommendations
 │   ├── __init__.py              # DynamicChartGenerator wrapper
 │   ├── data.py                  # SiteData (Haversine, risk scoring)
 │   ├── charts.py                # Plotly chart factories
+│   ├── cache_utils.py           # Caching utilities for performance
 │   ├── recommendations.py       # AIRecommendationEngine (rule-based)
 │   ├── risk_model.py            # ML model (Random Forest + XGBoost)
 │   └── recommendation_engine.py # Business recommendations + NL interface
@@ -42,6 +44,8 @@ CMS Dashboard 4.3/
 │   ├── __init__.py
 │   ├── app_logic.py             # Data loading, risk computation, caching
 │   ├── chart_display.py         # Tab orchestrator
+│   ├── click_processor.py       # Map click event handling
+│   ├── floating_chat.py         # Floating AI chat interface
 │   ├── charts/                  # One file per analysis tab
 │   │   ├── __init__.py
 │   │   ├── site_summary.py      # Basic site info metrics row
@@ -59,14 +63,28 @@ CMS Dashboard 4.3/
 ├── data/                        # DATA: fetching + storage
 │   ├── fetch_outages.py         # Historic outage fetcher (ENW API)
 │   ├── fetch_live_incidents.py  # Live incidents fetcher (ENW API)
+│   ├── fetch_flexibility_tenders.py  # Flexibility tender fetcher
 │   ├── df_cleaned.csv           # Cleaned outage data
 │   ├── all_charging_sites.csv   # Cleaned charging site data
+│   ├── flexibility_tenders.geojson  # Flexibility tender locations
 │   └── .last_fetch_outages      # Fetch state file
 │
 ├── charge_point_cleaning/       # Standalone cleaning utility
 │   ├── clean_datasets.py        # Core cleaning function
 │   ├── clean_chargepoint_dts_dashboard_logic.py  # Orchestration logic
 │   └── data_cleaning_dashboard.py                # Streamlit UI
+│
+├── tools/                       # CLI tools for OpenClaw integration
+│   ├── README.md                # Tool documentation
+│   ├── geocode.py               # Place name to coordinates
+│   ├── query_risk.py            # Risk predictions
+│   ├── query_outages.py         # Historic outage queries
+│   └── ...                      # See tools/README.md for full list
+│
+├── openclaw-plugin/             # OpenClaw AI chat integration
+│   ├── index.ts                 # Plugin entry point
+│   ├── skills/                  # AI workflow skills
+│   └── package.json             # Node.js dependencies
 │
 ├── models/                      # Trained ML models (.pkl, auto-generated)
 ├── logs/                        # Fetch logs (not tracked by git)
@@ -88,21 +106,32 @@ CMS Dashboard 4.3/
 | Model persistence | joblib |
 | File formats | CSV, Parquet (PyArrow) |
 | API client | Requests |
+| AI integration | OpenClaw (Node.js) |
 | Environment | Python 3.12+ |
 
 ---
 
 ## Getting Started
 
+### Quick Setup (End Users)
+
+1. **Double-click `setup.bat`** — handles everything automatically
+2. **Edit `.env`** with your API keys when prompted
+3. **Run `run_dashboard.bat`** to start
+
+### Manual Setup (Developers)
+
 1. **Set up the environment:**
    ```bash
+   python -m venv venv
+   venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
 2. **Configure your API key** (for data fetching and live incidents):
-   Create a `.env` file in the project root:
-   ```
-   ENW_API_KEY=your_api_key_here
+   ```bash
+   copy .env.example .env
+   # Edit .env with your keys
    ```
 
 3. **Launch the dashboard:**
