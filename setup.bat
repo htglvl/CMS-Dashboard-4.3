@@ -171,11 +171,6 @@ if !errorlevel! neq 0 (
     goto :eof
 )
 
-REM --- Get absolute paths ---
-set "PROJECT_ROOT=%~dp0"
-set "PYTHON_PATH=%PROJECT_ROOT%venv\Scripts\python.exe"
-set "TOOLS_DIR=%PROJECT_ROOT%tools"
-
 REM --- Check if OpenClaw config exists ---
 set "OPENCLAW_CONFIG=%USERPROFILE%\.openclaw\openclaw.json"
 if not exist "%OPENCLAW_CONFIG%" (
@@ -184,77 +179,15 @@ if not exist "%OPENCLAW_CONFIG%" (
     openclaw onboard --install-daemon
 )
 
-REM --- Read existing config or create new one ---
+REM --- Run configuration script ---
 echo.
 echo Configuring OpenClaw plugin...
-
-REM Create a temporary Python script to update config
-(
-echo import json
-echo import os
-echo import sys
-echo.
-echo config_path = os.path.expanduser(r'~\.openclaw\openclaw.json'^)
-echo.
-echo # Read existing config or create new
-echo if os.path.exists(config_path^):
-echo     with open(config_path, 'r'^) as f:
-echo         config = json.load(f^)
-echo else:
-echo     config = {}^
-echo.
-echo # Ensure structure exists
-echo if 'gateway' not in config:
-echo     config['gateway'] = {
-echo         "mode": "local",
-echo         "auth": {"mode": "none"},
-echo         "port": 18789,
-echo         "bind": "loopback",
-echo         "controlUi": {
-echo             "allowInsecureAuth": True,
-echo             "allowedOrigins": ["*"]
-echo         }
-echo     }^
-echo.
-echo if 'plugins' not in config:
-echo     config['plugins'] = {}^
-echo.
-echo if 'entries' not in config['plugins']:
-echo     config['plugins']['entries'] = {}^
-echo.
-echo # Update CMS Dashboard plugin
-echo config['plugins']['entries']['cms-dashboard'] = {
-echo     "enabled": True,
-echo     "pythonPath": r'%PYTHON_PATH%',
-echo     "toolsDir": r'%TOOLS_DIR%'
-echo }^
-echo.
-echo # Write updated config
-echo with open(config_path, 'w'^) as f:
-echo     json.dump(config, f, indent=2^)
-echo.
-echo print(f"Config updated: {config_path}"^)
-) > "%TEMP%\update_openclaw_config.py"
-
-python "%TEMP%\update_openclaw_config.py"
+python openclaw-plugin\configure.py
 if !errorlevel! neq 0 (
     echo ERROR: Failed to update OpenClaw config.
-    echo Please manually add this to %OPENCLAW_CONFIG%:
-    echo.
-    echo   "plugins": {
-    echo     "entries": {
-    echo       "cms-dashboard": {
-    echo         "enabled": true,
-    echo         "pythonPath": "%PYTHON_PATH%",
-    echo         "toolsDir": "%TOOLS_DIR%"
-    echo       }
-    echo     }
-    echo   }
-    echo.
+    echo Please manually configure OpenClaw. See README_OPENCLAW.md
 ) else (
     echo      OpenClaw plugin configured.
 )
-
-del "%TEMP%\update_openclaw_config.py" >nul 2>&1
 
 goto :eof
