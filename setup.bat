@@ -90,7 +90,7 @@ if exist "nginx\nginx.exe" (
 )
 
 echo      Downloading nginx...
-curl -L -o nginx.zip "https://nginx.org/download/nginx-1.27.4.zip" >nul 2>&1
+curl -L -o nginx.zip "https://nginx.org/download/nginx-1.27.4.zip"
 if !errorlevel! neq 0 (
     echo WARNING: Failed to download nginx. Dashboard will work without proxy.
     goto :nginx_done
@@ -99,19 +99,11 @@ if !errorlevel! neq 0 (
 echo      Extracting nginx...
 powershell -command "Expand-Archive -Path nginx.zip -DestinationPath nginx-tmp -Force"
 
-REM Copy files one by one to avoid overwriting our conf folder
-for %%f in (nginx-tmp\nginx-*\*) do (
-    if not exist "nginx\%%~nxf" (
-        copy "%%f" "nginx\" >nul 2>&1
-    )
-)
-for /d %%d in (nginx-tmp\nginx-*\*) do (
-    if not exist "nginx\%%~nxd" (
-        xcopy "%%d" "nginx\%%~nxd\" /E /I /Q >nul 2>&1
-    ) else (
-        xcopy "%%d" "nginx\%%~nxd\" /E /Q >nul 2>&1
-    )
-)
+REM Copy nginx files into nginx folder
+xcopy "nginx-tmp\nginx-1.27.4\*" "nginx\" /E /I /Y >nul 2>&1
+
+REM Replace default nginx.conf with our template
+copy "nginx\conf\nginx.conf.template" "nginx\conf\nginx.conf" >nul 2>&1
 
 rmdir /s /q nginx-tmp >nul 2>&1
 del nginx.zip >nul 2>&1
