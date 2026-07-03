@@ -49,46 +49,60 @@ echo      Dependencies installed.
 
 REM --- Setup .env file ---
 echo [4/8] Configuring API keys...
-if not exist ".env" (
-    if exist ".env.example" (
-        copy .env.example .env >nul
-        echo.
-        echo      Created .env from template.
-        echo      Please edit .env and add your API keys:
-        echo        - ENW_API_KEY (get from https://electricitynorthwest.opendatasoft.com/)
-        echo        - XIAOMI_API_KEY or OPENAI_API_KEY (for AI features)
-        echo.
-        echo      Press any key to open .env for editing...
-        pause >nul
-        start notepad .env
-        echo      Waiting for you to save .env...
-        echo      Press any key when done...
-        pause >nul
-    ) else (
-        echo WARNING: .env.example not found. Creating minimal .env...
-        echo ENW_API_KEY=your_api_key_here> .env
-        echo XIAOMI_API_KEY=your_api_key_here>> .env
-    )
+if exist ".env" (
+    echo      .env already exists, skipping.
+) else if exist ".env.example" (
+    copy .env.example .env >nul
+    echo.
+    echo      Created .env from template.
+    echo      Please edit .env and add your API keys:
+    echo        - ENW_API_KEY (get from https://electricitynorthwest.opendatasoft.com/)
+    echo        - XIAOMI_API_KEY or OPENAI_API_KEY (for AI features)
+    echo.
+    echo      Press any key to open .env for editing...
+    pause >nul
+    start notepad .env
+    echo      Waiting for you to save .env...
+    echo      Press any key when done...
+    pause >nul
 ) else (
-    echo      .env already exists.
+    echo WARNING: .env.example not found. Creating minimal .env...
+    (
+        echo ENW_API_KEY=your_api_key_here
+        echo XIAOMI_API_KEY=your_api_key_here
+    ) > .env
+    echo      Please edit .env with your API keys later.
 )
 
 REM --- Fetch initial data ---
 echo [5/8] Fetching initial outage data...
-python data/fetch_outages.py
-if !errorlevel! neq 0 (
-    echo WARNING: Failed to fetch data. You can retry later.
+REM Check if API key is configured
+findstr /C:"your_api_key_here" .env >nul 2>&1
+if !errorlevel! equ 0 (
+    echo WARNING: API key not configured in .env
+    echo      Please edit .env and set ENW_API_KEY before fetching data.
+    echo      Skipping data fetch...
+) else (
+    python data/fetch_outages.py
+    if !errorlevel! neq 0 (
+        echo WARNING: Failed to fetch data. You can retry later.
+    )
 )
 
-REM --- Train ML model ---
+REM --- Train ML model (only if data exists) ---
 echo [6/8] Training risk prediction model...
-if not exist "models\*.pkl" (
-    python advanced_charts/risk_model.py
-    if !errorlevel! neq 0 (
-        echo WARNING: Model training failed. Dashboard will work but risk predictions unavailable.
+if exist "data\df_cleaned.csv" (
+    if not exist "models\*.pkl" (
+        python advanced_charts/risk_model.py
+        if !errorlevel! neq 0 (
+            echo WARNING: Model training failed. Dashboard will work but risk predictions unavailable.
+        )
+    ) else (
+        echo      Models already trained.
     )
 ) else (
-    echo      Models already trained.
+    echo WARNING: No data file found. Skipping model training.
+    echo      Run setup.bat again after configuring API key and fetching data.
 )
 
 REM --- Build OpenClaw plugin ---
