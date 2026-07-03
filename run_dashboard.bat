@@ -77,9 +77,14 @@ echo [8/8] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
 timeout /t 3 /nobreak >nul
 
-REM --- Generate nginx config with OpenClaw token ---
+REM --- Generate nginx config ---
 echo      Generating nginx config...
 python -c "import json,os;p=os.path.expanduser(r'~\.openclaw\openclaw.json');t=json.load(open(p)).get('gateway',{}).get('auth',{}).get('token','');c=open(r'nginx\conf\nginx.conf.template').read();open(r'nginx\conf\nginx.conf','w').write(c.replace('__OCLAW_TOKEN__',t))"
+
+REM --- Start OpenClaw Python proxy (port 8503) ---
+echo      Starting OpenClaw proxy on port 8503...
+start "OpenClaw Proxy" cmd /c "call venv\Scripts\activate.bat && python openclaw_proxy.py"
+timeout /t 2 /nobreak >nul
 
 REM --- Kill any old nginx instances and start fresh ---
 wmic process where "name='nginx.exe'" delete >nul 2>&1
@@ -101,6 +106,7 @@ pause >nul
 echo.
 echo Stopping background services...
 taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
+taskkill /FI "WINDOWTITLE eq OpenClaw Proxy*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
 wmic process where "name='nginx.exe'" delete >nul 2>&1
 echo All services stopped.
