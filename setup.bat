@@ -49,81 +49,41 @@ echo      Dependencies installed.
 
 REM --- Setup .env file ---
 echo [4/8] Configuring API keys...
-if exist ".env" (
-    echo      .env already exists, skipping.
-) else if exist ".env.example" (
-    copy .env.example .env >nul
-    echo.
-    echo      Created .env from template.
-    echo      Please edit .env and add your API keys:
-    echo        - ENW_API_KEY (get from https://electricitynorthwest.opendatasoft.com/)
-    echo        - XIAOMI_API_KEY or OPENAI_API_KEY (for AI features)
-    echo.
-    echo      Press any key to open .env for editing...
-    pause >nul
-    start notepad .env
-    echo      Waiting for you to save .env...
-    echo      Press any key when done...
-    pause >nul
-) else (
-    echo WARNING: .env.example not found. Creating minimal .env...
-    (
-        echo ENW_API_KEY=your_api_key_here
-        echo XIAOMI_API_KEY=your_api_key_here
-    ) > .env
-    echo      Please edit .env with your API keys later.
-)
+if exist ".env" goto :env_exists
+if exist ".env.example" goto :env_from_template
+goto :env_create_minimal
 
-REM --- Fetch initial data ---
-echo [5/8] Fetching initial outage data...
-REM Check if API key is configured
-findstr /C:"your_api_key_here" .env >nul 2>&1
-if !errorlevel! equ 0 (
-    echo WARNING: API key not configured in .env
-    echo      Please edit .env and set ENW_API_KEY before fetching data.
-    echo      Skipping data fetch...
-) else (
-    python data/fetch_outages.py
-    if !errorlevel! neq 0 (
-        echo WARNING: Failed to fetch data. You can retry later.
-    )
-)
+:env_exists
+echo      .env already exists, skipping.
+goto :env_done
 
-REM --- Train ML model (only if data exists) ---
-echo [6/8] Training risk prediction model...
-if exist "data\df_cleaned.csv" (
-    if not exist "models\*.pkl" (
-        python advanced_charts/risk_model.py
-        if !errorlevel! neq 0 (
-            echo WARNING: Model training failed. Dashboard will work but risk predictions unavailable.
-        )
-    ) else (
-        echo      Models already trained.
-    )
-) else (
-    echo WARNING: No data file found. Skipping model training.
-    echo      Run setup.bat again after configuring API key and fetching data.
-)
-
-REM --- Build OpenClaw plugin ---
-echo [7/8] Building OpenClaw plugin...
-if exist "openclaw-plugin\package.json" (
-    cd openclaw-plugin
-    call npm install >nul 2>&1
-    call npm run build >nul 2>&1
-    cd ..
-    echo      OpenClaw plugin built.
-) else (
-    echo      OpenClaw plugin not found, skipping.
-)
-
-REM --- Configure OpenClaw ---
-echo [8/8] Configuring OpenClaw...
-call :SetupOpenClaw
-
-REM --- Download nginx ---
+:env_from_template
+copy .env.example .env >nul
 echo.
-echo Setting up nginx...
+echo      Created .env from template.
+echo      Please edit .env and add your API keys:
+echo        - ENW_API_KEY (get from https://electricitynorthwest.opendatasoft.com/)
+echo        - XIAOMI_API_KEY or OPENAI_API_KEY (for AI features)
+echo.
+echo      Press any key to open .env for editing...
+pause >nul
+start notepad .env
+echo      Waiting for you to save .env...
+echo      Press any key when done...
+pause >nul
+goto :env_done
+
+:env_create_minimal
+echo WARNING: .env.example not found. Creating minimal .env...
+echo ENW_API_KEY=your_api_key_here> .env
+echo XIAOMI_API_KEY=your_api_key_here>> .env
+echo      Please edit .env with your API keys later.
+
+:env_done
+
+REM --- Download nginx (do this early, before data fetch) ---
+echo.
+echo [5/8] Setting up nginx...
 if not exist "nginx\nginx.exe" (
     echo      Downloading nginx...
     curl -L -o nginx.zip "https://nginx.org/download/nginx-1.27.4.zip" >nul 2>&1
@@ -138,6 +98,64 @@ if not exist "nginx\nginx.exe" (
     )
 ) else (
     echo      nginx already exists.
+)
+
+REM --- Fetch initial data ---
+echo.
+echo [6/8] Fetching initial outage data...
+findstr /C:"your_api_key_here" .env >nul 2>&1
+if !errorlevel! equ 0 (
+    echo WARNING: API key not configured in .env
+    echo      Please edit .env and set ENW_API_KEY before fetching data.
+    echo      Skipping data fetch...
+) else (
+    python data/fetch_outages.py
+    if !errorlevel! neq 0 (
+        echo WARNING: Failed to fetch data. You can retry later.
+    )
+)
+
+REM --- Train ML model (only if data exists) ---
+echo.
+echo [7/8] Training risk prediction model...
+if exist "data\df_cleaned.csv" (
+    if not exist "models\*.pkl" (
+        python advanced_charts/risk_model.py
+        if !errorlevel! neq 0 (
+            echo WARNING: Model training failed. Dashboard will work but risk predictions unavailable.
+        )
+    ) else (
+        echo      Models already trained.
+    )
+) else (
+    echo WARNING: No data file found. Skipping model training.
+    echo      Run setup.bat again after configuring API key and fetching data.
+)
+
+REM --- Build and configure OpenClaw plugin ---
+echo.
+echo [8/8] Configuring OpenClaw...
+if exist "openclaw-plugin\package.json" (
+    cd openclaw-plugin
+    call npm install >nul 2>&1
+    call npm run build >nul 2>&1
+    cd ..
+    echo      OpenClaw plugin built.
+    
+    REM Configure OpenClaw
+    openclaw --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        python openclaw-plugin\configure.py
+        if !errorlevel! equ 0 (
+            echo      OpenClaw configured.
+        ) else (
+            echo WARNING: Failed to configure OpenClaw. See README_OPENCLAW.md
+        )
+    ) else (
+        echo WARNING: OpenClaw not installed. Install with: npm install -g openclaw@latest
+    )
+) else (
+    echo      OpenClaw plugin not found, skipping.
 )
 
 echo.
@@ -155,39 +173,3 @@ echo  See README_OPENCLAW.md for more details.
 echo.
 pause
 exit /b 0
-
-REM =============================================
-REM  OpenClaw Configuration Subroutine
-REM =============================================
-:SetupOpenClaw
-
-REM --- Check if OpenClaw is installed ---
-openclaw --version >nul 2>&1
-if !errorlevel! neq 0 (
-    echo.
-    echo WARNING: OpenClaw is not installed.
-    echo Install it with: npm install -g openclaw@latest
-    echo Then run this setup again.
-    goto :eof
-)
-
-REM --- Check if OpenClaw config exists ---
-set "OPENCLAW_CONFIG=%USERPROFILE%\.openclaw\openclaw.json"
-if not exist "%OPENCLAW_CONFIG%" (
-    echo.
-    echo OpenClaw config not found. Running onboarding...
-    openclaw onboard --install-daemon
-)
-
-REM --- Run configuration script ---
-echo.
-echo Configuring OpenClaw plugin...
-python openclaw-plugin\configure.py
-if !errorlevel! neq 0 (
-    echo ERROR: Failed to update OpenClaw config.
-    echo Please manually configure OpenClaw. See README_OPENCLAW.md
-) else (
-    echo      OpenClaw plugin configured.
-)
-
-goto :eof
