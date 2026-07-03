@@ -6,12 +6,13 @@ import path from "node:path";
 // Resolve project root: one level up from this plugin directory
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, "..");
 const TOOLS_DIR = path.join(PROJECT_ROOT, "tools");
+const VENV_PYTHON = path.join(PROJECT_ROOT, "venv", "Scripts", "python.exe");
 
 /** Run a Python tool script and return its stdout. */
 function runPythonTool(toolName: string, args: string[] = []): string {
   const scriptPath = path.join(TOOLS_DIR, `${toolName}.py`);
   const argStr = args.join(" ");
-  const command = `python "${scriptPath}" ${argStr}`;
+  const command = `"${VENV_PYTHON}" "${scriptPath}" ${argStr}`;
 
   try {
     const stdout = execSync(command, {
