@@ -126,7 +126,7 @@ def render_sidebar(charging_sites, outages):
     show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap", value=True)
 
     confidence_threshold = st.sidebar.slider(
-        "Minimum confidence", 0.0, 1.0, 0.5, 0.05,
+        "Minimum confidence", 0.0, 1.0, 0.95, 0.05,
         help="Only show heatmap cells where model confidence exceeds this value"
     )
 
