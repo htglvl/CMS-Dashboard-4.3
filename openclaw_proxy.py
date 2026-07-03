@@ -128,7 +128,9 @@ async def route(req):
     token = req.app["token"]
     is_ws = req.headers.get("Upgrade", "").lower() == "websocket"
 
-    sub = path or "/"
+    # Strip /oclaw prefix — nginx forwards full path
+    sub = path[len("/oclaw"):] if path.startswith("/oclaw") else path
+    sub = sub or "/"
     target = OPENCLAW + sub + ("?" + q if q else "")
 
     if is_ws:
