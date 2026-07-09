@@ -160,8 +160,8 @@ def clean_borderlands(input_path: str, output_path: str) -> dict:
         geocoded_count (int), total_count (int).
     """
     try:
-        # Read Excel file
-        df = pd.read_excel(input_path, engine="openpyxl")
+        # Read Excel file (header=1 to skip the title row)
+        df = pd.read_excel(input_path, engine="openpyxl", header=1)
     except Exception as e:
         return {"success": False, "error": f"Failed to read Excel file: {e}",
                 "output_path": output_path, "geocoded_count": 0, "total_count": 0}

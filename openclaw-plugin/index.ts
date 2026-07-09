@@ -227,6 +227,36 @@ export default defineToolPlugin({
         return runPythonTool("check_new_incidents");
       },
     }),
+
+    // ── clean_borderlands ─────────────────────────────────────────────
+    tool({
+      name: "clean_borderlands",
+      label: "Borderlands Sites",
+      description:
+        "Clean and geocode the Borderlands Long List of highly feasible chargepoint sites. Optionally cross-reference with risk predictions, existing chargepoints, and recommendation engine. Use this when asked about Borderlands sites, community chargepoint locations, or the Borderlands BOOST project.",
+      parameters: Type.Object({
+        top: Type.Optional(
+          Type.Number({ description: "Limit number of sites returned (default: all)" })
+        ),
+        local_authority: Type.Optional(
+          Type.String({ description: "Filter by local authority area (e.g. 'Cumberland', 'Northumberland')" })
+        ),
+        cross_ref: Type.Optional(
+          Type.Boolean({ description: "Cross-reference with risk/charging/recommendation data", default: false })
+        ),
+        radius: Type.Optional(
+          Type.Number({ description: "Cross-reference radius in km (default: 10)", default: 10 })
+        ),
+      }),
+      async execute({ top, local_authority, cross_ref, radius }) {
+        const args: string[] = [];
+        if (top !== undefined) args.push("--top", String(top));
+        if (local_authority) args.push("--local-authority", local_authority);
+        if (cross_ref) args.push("--cross-ref");
+        if (radius !== undefined) args.push("--radius", String(radius));
+        return runPythonTool("clean_borderlands", args);
+      },
+    }),
   ],
 });
 
@@ -246,6 +276,7 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - summarize_district: Full district analysis (risk + outages + sites)
 - get_wiki: Dashboard documentation
 - check_new_incidents: Check for new incidents
+- clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
