@@ -263,13 +263,26 @@ export default defineToolPlugin({
       name: "tag_counties",
       label: "County Lookup",
       description:
-        "Check which UK ceremonial county a lat/lon coordinate belongs to. Uses ONS ceremonial county boundaries.",
+        "Check which UK ceremonial county a lat/lon belongs to. Supports single-point lookup or bulk tagging a CSV file (adds ceremonial_county column). Use this to find which county outages or charging sites are in.",
       parameters: Type.Object({
-        lat: Type.Number({ description: "Latitude" }),
-        lon: Type.Number({ description: "Longitude" }),
+        lat: Type.Optional(Type.Number({ description: "Latitude for single-point lookup" })),
+        lon: Type.Optional(Type.Number({ description: "Longitude for single-point lookup" })),
+        bulk: Type.Optional(Type.String({ description: "CSV file path for bulk tagging (must have latitude/longitude columns)" })),
+        output: Type.Optional(Type.String({ description: "Output CSV path for bulk mode (default: overwrite input)" })),
       }),
-      async execute({ lat, lon }) {
-        return runPythonTool("tag_counties", ["--lat", String(lat), "--lon", String(lon)]);
+      async execute({ lat, lon, bulk, output }) {
+        const args: string[] = [];
+        if (bulk) {
+          args.push("--bulk", bulk);
+          if (output) args.push("--output", output);
+        } else if (lat !== undefined && lon !== undefined) {
+          args.push("--lat", String(lat), "--lon", String(lon));
+        } else {
+          return JSON.stringify({
+            error: "Provide lat/lon for single lookup, or bulk=<csv_path> for bulk tagging",
+          });
+        }
+        return runPythonTool("tag_counties", args);
       },
     }),
   ],
@@ -292,7 +305,7 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - get_wiki: Dashboard documentation
 - check_new_incidents: Check for new incidents
 - clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
-- tag_counties: Check which UK ceremonial county a lat/lon coordinate belongs to.
+- tag_counties: Check which UK ceremonial county a lat/lon belongs to. Single lookup or bulk CSV tagging.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
@@ -305,6 +318,20 @@ EXAMPLE: "What's the risk in Lancaster?"
 → query_risk(lat=54.05, lon=-2.80) → get risk data
 → query_charging_sites(near_lat=54.05, near_lon=-2.80, radius=10) → find chargers
 → query_outages(lat=54.05, lon=-2.80, radius=15) → get outage history
+
+WORKFLOW FOR COUNTY-LEVEL ANALYSIS:
+To find which county outages or charging sites are in, use tag_counties in bulk mode.
+This adds a "ceremonial_county" column to the CSV so you can group/filter by county.
+
+EXAMPLE: "Which county has the most unplanned outages?"
+→ tag_counties(bulk="data/df_cleaned.csv") → bulk-tag all outages with counties
+→ Then read the CSV and group by ceremonial_county to count outages per county
+
+EXAMPLE: "Tag all charging sites with their county"
+→ tag_counties(bulk="data/all_charging_sites.csv") → adds ceremonial_county column
+
+EXAMPLE: "What county is this specific outage in?"
+→ tag_counties(lat=54.89, lon=-2.93) → returns ceremonial_county for that point
 
 IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.`,
       tag: "cms-system-prompt",
