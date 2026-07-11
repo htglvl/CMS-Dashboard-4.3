@@ -103,16 +103,17 @@ timeout /t 1 /nobreak >nul
 start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
 timeout /t 2 /nobreak >nul
 
-REM --- 9. Start ngrok tunnel ---
-echo [9/9] Starting ngrok tunnel on port 8501...
-start "Ngrok Tunnel" cmd /c "cd /d "%~dp0" && ngrok.exe http 8501"
-timeout /t 3 /nobreak >nul
+REM --- 9. Start Cloudflare tunnel ---
+echo [9/9] Starting Cloudflare tunnel on port 8501...
+start "Cloudflare Tunnel" cmd /c "call venv\Scripts\activate.bat && python capture_tunnel_url.py"
+timeout /t 5 /nobreak >nul
 
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
 echo   OpenClaw:  http://localhost:8501/oclaw
-echo   Ngrok:     Check http://127.0.0.1:4040 for the public URL
+echo   Tunnel:    Check the Cloudflare Tunnel window for the public URL
+echo              URL also saved to tunnel_url.txt
 echo  ================================================
 echo.
 echo  Press any key to stop all services...
@@ -125,8 +126,8 @@ echo Stopping background services...
 taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq OpenClaw Proxy*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Ngrok Tunnel*" >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Localtunnel*" >nul 2>&1
 wmic process where "name='nginx.exe'" delete >nul 2>&1
-wmic process where "name='ngrok.exe'" delete >nul 2>&1
+wmic process where "name='node.exe'" delete >nul 2>&1
 echo All services stopped.
 pause
