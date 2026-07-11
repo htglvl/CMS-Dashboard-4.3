@@ -258,6 +258,39 @@ export default defineToolPlugin({
       },
     }),
 
+    // ── forecast_outages_by_season ──────────────────────────────────────
+    tool({
+      name: "forecast_outages_by_season",
+      label: "Seasonal Outage Forecast",
+      description:
+        "Forecast potential outages by season based on historical data. Shows expected outage counts, ranges, duration stats, and top causes per season. Use this for seasonal planning and risk assessment.",
+      parameters: Type.Object({
+        season: Type.Optional(
+          Type.Union([
+            Type.Literal("Winter"),
+            Type.Literal("Spring"),
+            Type.Literal("Summer"),
+            Type.Literal("Autumn"),
+          ], { description: "Forecast for a specific season only" })
+        ),
+        year: Type.Optional(Type.Number({ description: "Target forecast year (informational only)" })),
+        district: Type.Optional(Type.String({ description: "Filter by district name" })),
+        cause: Type.Optional(Type.String({ description: "Filter by direct cause category" })),
+        include_duration: Type.Optional(Type.Boolean({ description: "Include average duration stats per season", default: false })),
+        include_causes: Type.Optional(Type.Boolean({ description: "Include top causes per season", default: false })),
+      }),
+      async execute({ season, year, district, cause, include_duration, include_causes }) {
+        const args: string[] = [];
+        if (season) args.push("--season", season);
+        if (year !== undefined) args.push("--year", String(year));
+        if (district) args.push("--district", district);
+        if (cause) args.push("--cause", cause);
+        if (include_duration) args.push("--include-duration");
+        if (include_causes) args.push("--include-causes");
+        return runPythonTool("forecast_outages_by_season", args);
+      },
+    }),
+
     // ── count_outages_near_chargepoints ─────────────────────────────────
     tool({
       name: "count_outages_near_chargepoints",
@@ -333,6 +366,7 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
 - tag_counties: Check which UK ceremonial county a lat/lon belongs to. Single lookup or bulk CSV tagging.
 - count_outages_near_chargepoints: Count outages within 2-mile radius of CMS chargepoints. Shows which sites are most affected by grid disruptions.
+- forecast_outages_by_season: Forecast potential outages by season (Winter/Spring/Summer/Autumn). Shows expected counts, ranges, duration, and top causes.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
@@ -371,6 +405,20 @@ EXAMPLE: "Which V2X sites have the most outages nearby?"
 
 EXAMPLE: "Show me chargepoints in high-outage areas"
 → count_outages_near_chargepoints(top=10) → sites with most outages within 2 miles
+
+WORKFLOW FOR SEASONAL FORECASTING:
+Use forecast_outages_by_season to predict outage patterns based on historical data.
+
+EXAMPLE: "How many outages should we expect this winter?"
+→ forecast_outages_by_season(season="Winter") → Winter forecast with expected count and range
+
+EXAMPLE: "What are the seasonal outage patterns?"
+→ forecast_outages_by_season(include_duration=true, include_causes=true) → full seasonal breakdown
+
+EXAMPLE: "Forecast outages for Lancaster district"
+→ forecast_outages_by_season(district="Lancaster") → district-specific seasonal forecast
+
+IMPORTANT: The forecast is based on historical averages from years with reliable data (100+ outages/year). Always present it as an estimate, not a certainty. Include the confidence range (forecast_low to forecast_high) when reporting.
 
 IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.
 
