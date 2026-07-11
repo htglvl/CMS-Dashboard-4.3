@@ -22,7 +22,7 @@ if not exist ".env" (
 
 REM --- 1. Virtual environment ---
 if not exist "venv\Scripts\python.exe" (
-    echo [1/9] Creating virtual environment...
+    echo [1/10] Creating virtual environment...
     python -m venv venv
     if !errorlevel! neq 0 (
         echo ERROR: Failed to create venv.
@@ -30,11 +30,11 @@ if not exist "venv\Scripts\python.exe" (
         exit /b 1
     )
 ) else (
-    echo [1/9] Virtual environment already exists.
+    echo [1/10] Virtual environment already exists.
 )
 
 REM --- 2. Dependencies ---
-echo [2/9] Installing dependencies...
+echo [2/10] Installing dependencies...
 call venv\Scripts\activate.bat
 pip install --upgrade pip >nul 2>&1
 pip install -r requirements.txt
@@ -45,22 +45,22 @@ if %errorlevel% neq 0 (
 )
 
 REM --- 3. Fetch outage data ---
-echo [3/9] Checking for new outage data...
+echo [3/10] Checking for new outage data...
 python data/fetch_outages.py
 
 REM --- 4. Fetch flexibility tenders ---
-echo [4/9] Checking flexibility tenders...
+echo [4/10] Checking flexibility tenders...
 python data/fetch_flexibility_tenders.py
 
 REM --- 5. Build OpenClaw plugin ---
-echo [5/9] Building OpenClaw plugin...
+echo [5/10] Building OpenClaw plugin...
 cd openclaw-plugin
 call npm install >nul 2>&1
 call npm run build >nul 2>&1
 cd ..
 
 REM --- 6. Download nginx if not present ---
-echo [6/9] Checking nginx...
+echo [6/10] Checking nginx...
 if not exist "nginx\nginx.exe" (
     echo      Downloading nginx...
     curl -L -o nginx.zip "https://nginx.org/download/nginx-1.27.4.zip" >nul 2>&1
@@ -78,13 +78,28 @@ if not exist "nginx\nginx.exe" (
     echo      nginx already exists.
 )
 
-REM --- 7. Start OpenClaw gateway ---
-echo [7/9] Starting OpenClaw gateway...
+REM --- 7. Download cloudflared if not present ---
+echo [7/10] Checking cloudflared...
+if not exist "cloudflared.exe" (
+    echo      Downloading cloudflared...
+    curl -L -o cloudflared.exe "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to download cloudflared.
+        pause
+        exit /b 1
+    )
+    echo      cloudflared downloaded.
+) else (
+    echo      cloudflared already exists.
+)
+
+REM --- 8. Start OpenClaw gateway ---
+echo [8/10] Starting OpenClaw gateway...
 start "OpenClaw Gateway" cmd /c "call venv\Scripts\activate.bat && openclaw start --plugin openclaw-plugin"
 timeout /t 3 /nobreak >nul
 
-REM --- 8. Start Streamlit (internal port 8502) ---
-echo [8/9] Starting Streamlit dashboard...
+REM --- 9. Start Streamlit (internal port 8502) ---
+echo [9/10] Starting Streamlit dashboard...
 start "Streamlit Dashboard" cmd /c "call venv\Scripts\activate.bat && streamlit run enhanced_app.py --server.port 8502 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
 timeout /t 3 /nobreak >nul
 
@@ -103,16 +118,16 @@ timeout /t 1 /nobreak >nul
 start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
 timeout /t 2 /nobreak >nul
 
-REM --- 9. Start ngrok tunnel ---
-echo [9/9] Starting ngrok tunnel on port 8501...
-start "Ngrok Tunnel" cmd /c "cd /d "%~dp0" && ngrok.exe http 8501"
+REM --- 10. Start Cloudflare tunnel ---
+echo [10/10] Starting Cloudflare tunnel on port 8501...
+start "Cloudflare Tunnel" cmd /c "cloudflared.exe tunnel run cms-dashboard"
 timeout /t 3 /nobreak >nul
 
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
 echo   OpenClaw:  http://localhost:8501/oclaw
-echo   Ngrok:     Check http://127.0.0.1:4040 for the public URL
+echo   Tunnel:    https://cms-dashboard.cfargotunnel.com
 echo  ================================================
 echo.
 echo  Press any key to stop all services...
@@ -125,8 +140,8 @@ echo Stopping background services...
 taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq OpenClaw Proxy*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Ngrok Tunnel*" >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Cloudflare Tunnel*" >nul 2>&1
 wmic process where "name='nginx.exe'" delete >nul 2>&1
-wmic process where "name='ngrok.exe'" delete >nul 2>&1
+wmic process where "name='cloudflared.exe'" delete >nul 2>&1
 echo All services stopped.
 pause
