@@ -257,6 +257,21 @@ export default defineToolPlugin({
         return runPythonTool("clean_borderlands", args);
       },
     }),
+
+    // ── tag_counties ─────────────────────────────────────────────────────
+    tool({
+      name: "tag_counties",
+      label: "County Lookup",
+      description:
+        "Check which UK ceremonial county a lat/lon coordinate belongs to. Uses ONS ceremonial county boundaries.",
+      parameters: Type.Object({
+        lat: Type.Number({ description: "Latitude" }),
+        lon: Type.Number({ description: "Longitude" }),
+      }),
+      async execute({ lat, lon }) {
+        return runPythonTool("tag_counties", ["--lat", String(lat), "--lon", String(lon)]);
+      },
+    }),
   ],
 });
 
@@ -277,6 +292,7 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - get_wiki: Dashboard documentation
 - check_new_incidents: Check for new incidents
 - clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
+- tag_counties: Check which UK ceremonial county a lat/lon coordinate belongs to.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
