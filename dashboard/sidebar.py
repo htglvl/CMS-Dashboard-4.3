@@ -1,5 +1,6 @@
 """Sidebar filters, controls, and auto-refresh configuration."""
 
+import json
 import os
 import time as _time
 from pathlib import Path
@@ -7,6 +8,26 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+
+_PERSIST_PATH = Path(__file__).parent.parent / "data" / "sidebar_prefs.json"
+
+
+def _load_prefs():
+    """Load persisted sidebar preferences from disk."""
+    try:
+        if _PERSIST_PATH.exists():
+            return json.loads(_PERSIST_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_prefs(prefs):
+    """Persist sidebar preferences to disk."""
+    try:
+        _PERSIST_PATH.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 class OutlierFilter:
@@ -125,10 +146,18 @@ def render_sidebar(charging_sites, outages):
 
     show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap", value=True)
 
+    _prefs = _load_prefs()
+    _default_conf = _prefs.get("confidence_threshold", 0.95)
+
     confidence_threshold = st.sidebar.slider(
-        "Minimum confidence", 0.0, 1.0, 0.95, 0.05,
+        "Minimum confidence", 0.0, 1.0, _default_conf, 0.05,
         help="Only show heatmap cells where model confidence exceeds this value"
     )
+
+    # Persist when changed
+    if confidence_threshold != _default_conf:
+        _prefs["confidence_threshold"] = confidence_threshold
+        _save_prefs(_prefs)
 
     if st.sidebar.button("🔄 Retrain Risk Models", use_container_width=True):
         with st.spinner("Retraining models... this may take a minute"):
