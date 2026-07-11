@@ -258,6 +258,32 @@ export default defineToolPlugin({
       },
     }),
 
+    // ── count_outages_near_chargepoints ─────────────────────────────────
+    tool({
+      name: "count_outages_near_chargepoints",
+      label: "Outages Near Chargepoints",
+      description:
+        "Count unplanned outages within 2-mile radius of each Charge My Street chargepoint. Shows which sites are most affected by grid disruptions.",
+      parameters: Type.Object({
+        category: Type.Optional(
+          Type.String({ description: "Filter sites by category: V2X, Building-supplied, Other" })
+        ),
+        radius: Type.Optional(
+          Type.Number({ description: "Radius in km (default: 3.219 = 2 miles)", default: 3.218688 })
+        ),
+        top: Type.Optional(
+          Type.Number({ description: "Show top N sites by outage count (0 = all sites)", default: 0 })
+        ),
+      }),
+      async execute({ category, radius, top }) {
+        const args: string[] = [];
+        if (category) args.push("--category", category);
+        if (radius !== undefined) args.push("--radius", String(radius));
+        if (top !== undefined) args.push("--top", String(top));
+        return runPythonTool("count_outages_near_chargepoints", args);
+      },
+    }),
+
     // ── tag_counties ─────────────────────────────────────────────────────
     tool({
       name: "tag_counties",
@@ -306,6 +332,7 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - check_new_incidents: Check for new incidents
 - clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
 - tag_counties: Check which UK ceremonial county a lat/lon belongs to. Single lookup or bulk CSV tagging.
+- count_outages_near_chargepoints: Count outages within 2-mile radius of CMS chargepoints. Shows which sites are most affected by grid disruptions.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
@@ -332,6 +359,18 @@ EXAMPLE: "Tag all charging sites with their county"
 
 EXAMPLE: "What county is this specific outage in?"
 → tag_counties(lat=54.89, lon=-2.93) → returns ceremonial_county for that point
+
+WORKFLOW FOR OUTAGE-CHARGEPOINT ANALYSIS:
+Use count_outages_near_chargepoints to find which CMS chargepoints are in outage-prone areas.
+
+EXAMPLE: "How many outages are near our chargepoints?"
+→ count_outages_near_chargepoints() → summary + per-site outage counts
+
+EXAMPLE: "Which V2X sites have the most outages nearby?"
+→ count_outages_near_chargepoints(category="V2X", top=10) → top 10 V2X sites by outage count
+
+EXAMPLE: "Show me chargepoints in high-outage areas"
+→ count_outages_near_chargepoints(top=10) → sites with most outages within 2 miles
 
 IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.`,
       tag: "cms-system-prompt",
