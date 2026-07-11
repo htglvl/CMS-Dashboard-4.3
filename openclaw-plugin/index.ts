@@ -420,6 +420,53 @@ EXAMPLE: "Forecast outages for Lancaster district"
 
 IMPORTANT: The forecast is based on historical averages from years with reliable data (100+ outages/year). Always present it as an estimate, not a certainty. Include the confidence range (forecast_low to forecast_high) when reporting.
 
+WORKFLOW FOR CHAINED ANALYSIS (TOOL COMBINATIONS):
+Some questions require chaining multiple tools together. Here are step-by-step examples:
+
+EXAMPLE: "Number of power outages across the last 12 months in Cumbria and Northumberland ONLY"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → adds ceremonial_county column to all outages
+Step 2 → query_outages(year=2025) → get outages from last 12 months (adjust year as needed)
+Step 3 → Read the tagged CSV, filter where ceremonial_county is "Cumbria" or "Northumberland", count rows
+Step 4 → Report: "According to the data, there were X outages in Cumbria and Y in Northumberland in the last 12 months."
+
+EXAMPLE: "Length of outages – average and frequency in Cumbria and Northumberland ONLY"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → adds ceremonial_county column
+Step 2 → Read the tagged CSV, filter where ceremonial_county is "Cumbria" or "Northumberland"
+Step 3 → Compute: average duration-hours, count of outages per county
+Step 4 → Report: "Cumbria: Z outages, average duration X hours. Northumberland: Z outages, average duration Y hours."
+
+EXAMPLE: "Number of outages near CMS chargepoints in Cumbria and Northumberland in the next 12 months"
+Step 1 → count_outages_near_chargepoints() → get outage counts per chargepoint site
+Step 2 → tag_counties(bulk="data/all_charging_sites.csv") → tag chargepoints with counties
+Step 3 → Read tagged chargepoints, filter where ceremonial_county is "Cumbria" or "Northumberland"
+Step 4 → Match filtered chargepoints to the outage counts from Step 1
+Step 5 → forecast_outages_by_season(include_duration=true) → get seasonal forecast
+Step 6 → Combine: "Based on historical data, chargepoints in Cumbria/Northumberland had X outages within 2 miles. Forecasting forward 12 months, we expect Y outages (range: low-high)."
+
+EXAMPLE: "Outages near planned chargepoint installations in 6/12/18 months"
+Step 1 → query_charging_sites() → get all CMS chargepoints
+Step 2 → count_outages_near_chargepoints() → current outage exposure per site
+Step 3 → forecast_outages_by_season(include_duration=true) → seasonal forecast
+Step 4 → For 6-month forecast: sum next 2 seasons' forecast_expected
+Step 5 → For 12-month forecast: sum all 4 seasons' forecast_expected
+Step 6 → For 18-month forecast: sum all 4 seasons + next season's forecast_expected
+Step 7 → Report per timeframe with confidence ranges
+
+EXAMPLE: "Compare outage risk between Cumbria and Northumberland"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → tag outages with counties
+Step 2 → query_outages(district="Carlisle") → Cumbria district data
+Step 3 → query_outages(district="Newcastle") → Northumberland area data
+Step 4 → forecast_outages_by_season(district="Carlisle") → Cumbria forecast
+Step 5 → forecast_outages_by_season(district="Newcastle") → Northumberland forecast
+Step 6 → Compare and report differences
+
+RULES FOR CHAINED ANALYSIS:
+- Always call tag_counties(bulk=...) FIRST when the question mentions specific counties
+- The tagged CSV is saved to the same path, so subsequent reads will have the county column
+- When combining tools, explain each step to the user so they understand the pipeline
+- If a tool chain produces no results at any step, stop and report which step failed
+- Never skip a tool call and guess the answer — always run the tools
+
 IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.
 
 CRITICAL RULES — DO NOT HALLUCINATE:
