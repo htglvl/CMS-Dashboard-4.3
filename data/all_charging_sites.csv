@@ -1,5 +1,5 @@
 charge_point_location,site_category,latitude,longitude
-Adams Recreation Ground,Building-supplied Charger,54.4906323175064,-3.601799011230469
+Adams Recreation Ground,Building-supplied Charger,54.49063232,-3.601799011
 "Daltongate car park, Ulverston",Other Chargepoint,54.19599,-3.097386
 "Peppercorn Lane car park, Kendal",Other Chargepoint,54.323103,-2.746046
 Walney School,Other Chargepoint,54.105196,-3.258839
@@ -14,12 +14,12 @@ Haven Cottage B&B,Building-supplied Charger,54.434813,-2.966706
 Yealands Village Hall,V2X Chargepoint,54.170766,-2.761917
 Mellor Village Hall,Other Chargepoint,53.773254,-2.526131
 "The Anglers Rest, Bamford, High Peak",Other Chargepoint,53.350032,-1.688919
-Arnside Educational Institute,Building-supplied Charger,54.201549951708856,-2.8337645530700684
+Arnside Educational Institute,Building-supplied Charger,54.20154995,-2.833764553
 "Petterill Bank Community Centre, Carlisle",Other Chargepoint,54.873107,-2.907307
 "Kingsway Car Park, Dalston, Carlisle",Other Chargepoint,54.842311,-2.972648
 "West Point House, Walney",Other Chargepoint,54.11639,-3.261249
 "Stanwix Car Park, Carlisle",Other Chargepoint,54.904326,-2.9368
-Weardale Community Transport,V2X Chargepoint,54.72650372803555,-1.881762742996216
+Weardale Community Transport,V2X Chargepoint,54.72650373,-1.881762743
 "Broad Street, Windermere",Other Chargepoint,54.377216,-2.906128
 "Beetham Road Car Park, Milnthorpe",Other Chargepoint,54.226001,-2.773386
 "Shap Public Car Park, Main Street",Other Chargepoint,54.5293,-2.675925
@@ -31,7 +31,7 @@ Kendal College,Other Chargepoint,54.317726,-2.747234
 "Union Lane car park, Brampton",Other Chargepoint,54.943857,-2.735075
 Stanhope Masonic Hall,V2X Chargepoint,54.745307,-2.003006
 "Silloth Street, off Wigton Road, Carlisle",Other Chargepoint,54.893184,-2.949533
-"Sams Lane, Blunsdon SP-04",Other Chargepoint,51.61360545052697,-1.7768431580083115
+"Sams Lane, Blunsdon SP-04",Other Chargepoint,51.61360545,-1.776843158
 "Tisbury, Parish Council Car Park",Other Chargepoint,51.063809,-2.079281
 "Buxton Place, Ulverston",Other Chargepoint,54.195994,-3.094064
 Braithwaite Institute,Other Chargepoint,54.605683,-3.188657
@@ -41,28 +41,28 @@ Dent Parish Car Park,Other Chargepoint,54.278491,-2.455437
 "Rayrigg Road car park, Bowness",Other Chargepoint,54.365863,-2.920032
 "Victory Hall, Broughton in Furness",Other Chargepoint,54.276716,-3.212232
 Salt Ayre Leisure Centre,Other Chargepoint,54.055147,-2.824714
-Skelton Toppin Memorial Hall,Building-supplied Charger,54.711498090917175,-2.875268161310488
+Skelton Toppin Memorial Hall,Building-supplied Charger,54.71149809,-2.875268161
 "Clifford Street Car Park, back Corporation Road, Carlisle",Other Chargepoint,54.898092,-2.936415
-Pennington Flash National Nature Reserve Car Park,Other Chargepoint,53.48642586906648,-2.537315376515345
+Pennington Flash National Nature Reserve Car Park,Other Chargepoint,53.48642587,-2.537315377
 Aspatria Masonic Hall,Other Chargepoint,54.765044,-3.320204
 Thwaites Village Hall,Other Chargepoint,54.250365,-3.261554
 "Dallas Road Car Park, Lancaster",Other Chargepoint,54.047281,-2.804523
-Hutton Roof Village Hall,Other Chargepoint,54.20187628575923,-2.660472393035889
+Hutton Roof Village Hall,Other Chargepoint,54.20187629,-2.660472393
 "Shadygrove Road, Carlisle",Other Chargepoint,54.890512,-2.967158
 Netherhall School,Other Chargepoint,54.716668,-3.488605
 "Sams Lane, Blunsdon Community Shop and Cafe",Other Chargepoint,51.6140838,-1.7790967
 Staveley Mill Yard,Other Chargepoint,54.377028,-2.815603
 Farmborough Memorial Hall and Farmborough Community Shop,Other Chargepoint,51.34244,-2.48309
 Morland & Newby Village Hall,Other Chargepoint,54.594804,-2.623742
-"Sams Lane, Blunsdon SP-03",Other Chargepoint,51.61413506376336,-1.7775517185854033
+"Sams Lane, Blunsdon SP-03",Other Chargepoint,51.61413506,-1.777551719
 Morton Manor Community Centre,Other Chargepoint,54.885823,-2.964023
 The Dog Inn Belthorn,Other Chargepoint,53.718056,-2.430767
 Rydal Hall,V2X Chargepoint,54.44861,-2.980047
-Newbiggin Village Hall,Building-supplied Charger,54.6556933895807,-2.822475671800931
+Newbiggin Village Hall,Building-supplied Charger,54.65569339,-2.822475672
 Horse and Farrier threlkeld,Other Chargepoint,54.619462,-3.051508
 "Festival Market Car Park, Morecambe",Other Chargepoint,54.071332,-2.87275
 Hamsterley Colliery,V2X Chargepoint,54.90344,-1.81784
-"Sams Lane, Blunsdon SP-05",Other Chargepoint,51.61386211002287,-1.776987494432509
+"Sams Lane, Blunsdon SP-05",Other Chargepoint,51.61386211,-1.776987494
 "Kents Bank Road car park, Grange over Sands",Other Chargepoint,54.191155,-2.912256
 Gamblesby Community Centre,V2X Chargepoint,54.750097,-2.606236
 "Keswick Convention Centre, Skiddaw Street Centre Car Park",Other Chargepoint,54.600766,-3.129139
@@ -87,3 +87,151 @@ Fathers House Elim Church,Other Chargepoint,54.056077,-2.798706
 Alresford Parish Council Car Park,V2X Chargepoint,51.851749,1.001603
 "King Street car park, Ambleside",Other Chargepoint,54.430301,-2.963298
 "South Lakeland House multi-storey car park, Kendal",Other Chargepoint,54.327343,-2.745734
+Longframlington Memorial Hall,Other Chargepoint,55.3011284,-1.8026226
+Shilbottle Community Hall,Other Chargepoint,55.3697523,-1.6933775
+Stannington Village Hall,Other Chargepoint,55.1053001,-1.6992892
+"The Hearth, Horsley",Other Chargepoint,54.9884908,-1.8657348
+"Vyner Park, Swarland",Other Chargepoint,55.3246432,-1.7376487
+Seahouses Development Trust,Other Chargepoint,55.5773147,-1.6601403
+Lowick Village Hall,V2X Chargepoint,55.6516238,-1.9748188
+Harraby Playground car park,Other Chargepoint,54.88051798,-2.896239237
+Parking area - Gilsland road,Other Chargepoint,54.89058147,-2.897268798
+Carlisle Archive Centre Car Park,Other Chargepoint,54.87455052,-2.910372603
+Currock community centre car park area,Other Chargepoint,54.879204,-2.937285
+Greystone Community centre,Other Chargepoint,54.88946707,-2.924882613
+Hammonds pond car park,Other Chargepoint,54.871936,-2.93122
+Melbourne Park car park,Other Chargepoint,54.88905127,-2.909772739
+Market Place Car Parking- Brampton,Other Chargepoint,54.94223645,-2.734226047
+Longtown community centre,Other Chargepoint,55.00661846,-2.970488574
+Kingmoor resererve Car park,Other Chargepoint,55.00831767,-2.768011806
+Bitts park ,Other Chargepoint,54.8977071,-2.939437502
+Hornsby,Other Chargepoint,54.84299098,-2.755104732
+Heads Nook Village Hall Parking ,Building-supplied Charger,54.8879659,-2.78853317
+Gilsland Car Park,Other Chargepoint,54.98927581,-2.579256267
+Walton Village Hall,Building-supplied Charger,54.97288557,-2.749860791
+"St Martins Close, Brampton",Other Chargepoint,54.94073847,-2.739331646
+Bramptom community  centre,Other Chargepoint,54.94362097,-2.736519848
+Roadhead village hall,Building-supplied Charger,55.07013918,-2.7527514
+Hethersgill Parish Hall,Building-supplied Charger,54.99648115,-2.815696418
+Scotby post office - opposite near bus stop and bike rack,Other Chargepoint,54.97967184,-2.875099152
+Eskdale House Council Care Home,Other Chargepoint,55.00896287,-2.968578219
+Moat village hall,Other Chargepoint,55.08732014,-2.864588404
+Crosby on Eden Village Hall ,Other Chargepoint,54.92728415,-2.867444703
+Scaleby Village Hall ,Building-supplied Charger,54.95972589,-2.86395226
+"Sallys parking area, Warwick Bridge",Other Chargepoint,54.90402645,-2.817984901
+Great Corby Village hall,Other Chargepoint,54.88178345,-2.824602816
+Wetheral Village Community Hall ,Building-supplied Charger,54.87844014,-2.835682633
+Wreay Village Hall ,Other Chargepoint,54.83269266,-2.882513528
+Cotehill Village Hall ,Building-supplied Charger,54.84420375,-2.829154878
+Houghton village hall,Other Chargepoint,54.92505599,-2.924062721
+Parking area near Lowry gardens next to reserve entrance and path into Lowry gardens,Other Chargepoint,54.9210901,-2.946942576
+Cranbourne road ,Other Chargepoint,54.89371815,-2.961075221
+Raffles ave,Building-supplied Charger,54.8924706,-2.963325615
+Car park near SPAR off Troutbeck road,Other Chargepoint,54.88846485,-2.97974361
+Orton Road Juction with Wigton Road ,Other Chargepoint,54.88792803,-2.962129201
+Burnrigg Court Council Care Home ,Other Chargepoint,54.88198923,-2.964297446
+Boustead Grassing car park area,Other Chargepoint,54.885102,-2.936701
+Top of Dowbeck road ,Other Chargepoint,54.89042543,-2.951392844
+Lower Church Street Maryport ,Other Chargepoint,54.71527754,-3.493863085
+Bitterbeck Car Park - Cockermouth,Other Chargepoint,54.66388807,-3.361033322
+Sullart Street Car Park - Cockermouth,Other Chargepoint,54.66098699,-3.368296942
+Keswick Library,Building-supplied Charger,54.60151383,-3.140120317
+Flimby Family Centre Car Park,Other Chargepoint,54.68895788,-3.520011975
+"Ewanrigg Rd, Maryport - Site 3   Shop Car Park Area? ",Other Chargepoint,54.70541968,-3.491042016
+Chuch Terrace / Social club / amenity area Car Park - Maryport,Other Chargepoint,54.70907021,-3.483867045
+Crosscanonby Village hall,Building-supplied Charger,54.73122607,-3.44313699
+Embleton Village Hall ,Other Chargepoint,54.66214734,-3.28135787
+Lorton St Methodist Church Car Park - Cockermouth,Other Chargepoint,54.66143545,-3.363476544
+Kirkgate Car Park - Cockermouth,Other Chargepoint,54.66349144,-3.359211902
+"Highfield Community Centre Car Park, Cockermouth",Building-supplied Charger,54.66331398,-3.349525174
+Loweswater village hall Car Park ,Other Chargepoint,54.57751876,-3.331670136
+Otley Road Car Park - Keswick ,Other Chargepoint,54.60241524,-3.136414737
+Keswick Lesiure centre,Other Chargepoint,54.60445414,-3.132354704
+Blennerhasset Village hall,Other Chargepoint,54.76130076,-3.280523528
+Bothel Village Hall ,Other Chargepoint,54.74016633,-3.273690888
+Prospect village hall,Other Chargepoint,54.75461789,-3.374942061
+Gilcrux Village Hall ,Other Chargepoint,54.73048359,-3.373648144
+Plumbland Village Hall ,Other Chargepoint,54.73899991,-3.328611712
+Dean - Kirkstile Hall ,Other Chargepoint,54.73667351,-3.291052081
+"Bridgefoot Village Hall, near Cockermouth",Other Chargepoint,54.64855276,-3.464445048
+Market Hill - Wigton,Other Chargepoint,54.82597832,-3.158275433
+Silloth Community Hall Parking,Other Chargepoint,54.87145924,-3.384873475
+Abbeytown village hall,Other Chargepoint,54.84493381,-3.288957065
+Allonby Parking Area,Other Chargepoint,54.7725813,-3.430098255
+Aspatria Library,Other Chargepoint,54.76366419,-3.334273914
+Rainbow room Car Park - Aspatria,Other Chargepoint,54.76366314,-3.331829747
+Wigton Swimming pool,Building-supplied Charger,54.82315784,-3.154628852
+Caldbeck Car Park (Free) ,Other Chargepoint,54.74954046,-3.052626384
+Parking Area - Oldfellows Arms ,Other Chargepoint,54.74834333,-3.051437738
+Hesket New Market Car Park ,Other Chargepoint,54.73826972,-3.023693547
+Bowness on Solway car park,Other Chargepoint,54.95233888,-3.219759575
+Westnewton Parish Council - site 2,Other Chargepoint,54.78362784,-3.348047433
+Caldbeck Parish Hall,Building-supplied Charger,54.74574842,-3.057147213
+Newton Arlosh Parish Hall ,Building-supplied Charger,54.88499449,-3.249257388
+Queen Street (Aspatria),Other Chargepoint,54.76459048,-3.324209516
+Beck Green Car Park - Egremont,Other Chargepoint,54.48127635,-3.527248867
+Main St Car Park - (Free) Haverigg,Other Chargepoint,54.19721939,-3.288607121
+Millom Hub Parking ,Other Chargepoint,54.21383591,-3.269970633
+"Market St Car Park, Cleator Moor",Other Chargepoint,54.52062767,-3.516332931
+Albert Street - Millom,Other Chargepoint,54.20972307,-3.261418737
+Beckermet Free Parking Area ,Other Chargepoint,54.44597059,-3.513677534
+Bigrigg Village Hall Car Park,Other Chargepoint,54.50440159,-3.545482244
+Bootle Village Hall - Hycemoor,Building-supplied Charger,54.29082484,-3.395155876
+Calderbridge Village Hall ,Other Chargepoint,54.44139768,-3.479332287
+Church Street Car Park - Cleator,Other Chargepoint,54.50701448,-3.522990188
+Drigg Village Hall ,Building-supplied Charger,54.37917129,-3.434325366
+Egremont Library Car Park ,Other Chargepoint,54.48311546,-3.52969277
+Gosforth Car Park South,Other Chargepoint,54.41900824,-3.438151847
+"Layby Near main road, Silecroft",Other Chargepoint,54.22591409,-3.33394154
+Lord St Parking - Millom,Other Chargepoint,54.20970114,-3.263847955
+Main St Parking - Cleator ,Other Chargepoint,54.50758368,-3.520695534
+Main St Parking Area - Bootle Site 2 ,Other Chargepoint,54.28274419,-3.372533009
+Main Street / Church Lane - Bootle Site 1 ,Other Chargepoint,54.28294296,-3.373635115
+Millom Community Centre ,Other Chargepoint,54.2094409,-3.269061941
+"Santon Bridge Village Hall, Holmrook",Other Chargepoint,54.40135944,-3.369382074
+Seascale Car Park or Sports Hall ,Other Chargepoint,54.395499,-3.484164957
+Seascale Library ,Other Chargepoint,54.39670826,-3.480524079
+Smithybrow Lane Parking Area (free) Eskdale,Other Chargepoint,54.39013988,-3.32299377
+"Montreal St / Jacktrees Rd Car Park, Cleator Moor",Other Chargepoint,54.52084643,-3.518127064
+Arlecdon Hall ,Other Chargepoint,54.55587721,-3.471991407
+"Schoolhouse Lane Car Park, Whitehaven",Other Chargepoint,54.54788122,-3.58635211
+Distington Main St Parking ,Other Chargepoint,54.59562119,-3.539259176
+"Brook Bank Parking Area,Hensingham, Whitehaven",Other Chargepoint,54.53677492,-3.569363616
+Pica Main St Parking,Other Chargepoint,54.58365875,-3.518495747
+"Williamson Lane Parking Area, Hensingham ",Other Chargepoint,54.53790775,-3.563826983
+Lowca Village hall,Other Chargepoint,54.57947453,-3.571528439
+"Copeland Pool Leisure Centre, Hensingham, Whitehaven",Other Chargepoint,54.53696199,-3.553930884
+Whitehaven sports centre,Other Chargepoint,54.54570191,-3.585288539
+"Ginns Parking Area, Whitehaven",Other Chargepoint,54.54175314,-3.58917748
+The Square / Parton Village Hall Parking Area ,Other Chargepoint,54.57020809,-3.580197506
+Keekle terrace parking,Other Chargepoint,54.53283162,-3.541745069
+Red Lonning Community Centre ,Other Chargepoint,54.54383613,-3.564684873
+The Gables - Council Care Home ,Other Chargepoint,54.53962312,-3.560906408
+Distington Community Centre ,Other Chargepoint,54.59798849,-3.541836158
+"New Road, whitehaven",Other Chargepoint,54.55899641,-3.57867864
+"St Peter's Parish Community Hall, Mirehouse",Building-supplied Charger,54.53340648,-3.593956835
+MIrehouse Community Centre / Seathwaite Ave ,Building-supplied Charger,54.52784264,-3.578652057
+New South Watt Street Car Park - Workington ,Other Chargepoint,54.643871,-3.55394
+"Bolton street community hall, Workington",Other Chargepoint,54.63932916,-3.556755423
+"Grecian Terrace Parking area, Harrington ",Other Chargepoint,54.61293403,-3.564768449
+Seaton Library Car Park,Other Chargepoint,54.66222146,-3.526306506
+"Falcon street Parking near cemetry, Workington",Other Chargepoint,54.64471926,-3.553500757
+"Park lane Car Park - Site 1 Town Hall , Workington",Other Chargepoint,54.64377295,-3.552066627
+"Belle Isle Street Parking, Workington ",Other Chargepoint,54.64473371,-3.556767654
+"Peter Street Car Park, Workington",Other Chargepoint,54.6401106,-3.546159401
+Elizabeth Street / Fox Lane Car Park - Workington ,Other Chargepoint,54.6421426,-3.540987282
+"Carlton Rd  -  Allerdale day opportunities Parking area, Workington",Other Chargepoint,54.64248523,-3.539005833
+"Vulcan Lane car park, Workington",Other Chargepoint,54.64435312,-3.5485337
+Northside Community Centre Car Park ,Other Chargepoint,54.65228086,-3.548603228
+"Moorclose Community Centre, Workington",Building-supplied Charger,54.62778849,-3.551363981
+"Woolenscroft parking area, Stainburn",Other Chargepoint,54.64535141,-3.522436675
+"The Oval Centre Car Park, Salterbeck",Other Chargepoint,54.61900381,-3.56407714
+The Sands Centre Car Park - Carlisle,Other Chargepoint,54.89931792,-2.933182474
+Cecil Street Car Park - Carlisle ,Other Chargepoint,54.89087438,-2.927578444
+Central Car Park - Keswick ,Other Chargepoint,54.60046503,-3.138048118
+Workington Railway Station Transport Hub ,Other Chargepoint,54.64436434,-3.558528362
+Allerdale House Car Park - Workington ,Other Chargepoint,54.64690045,-3.550756263
+Maryport Railway Station Transport Hub,Other Chargepoint,54.71209323,-3.493857911
+Senhouse Street Car Park - Whitehaven,Other Chargepoint,54.55010647,-3.586884866
+Gateway 44 Retail Park Car Park - Carlisle,Other Chargepoint,54.92983759,-2.950739614
+Lowther Street Car Park - Carlisle ,Other Chargepoint,54.89600774,-2.932907348

@@ -324,7 +324,7 @@ def create_advanced_map(
         </div>
         """
 
-        marker_size = max(8, min(25, outage_count + 5))
+        marker_size = max(8, min(15, outage_count + 5))
 
         # Add 2-mile buffer FIRST (below markers)
         if show_buffers and buffer_group is not None:

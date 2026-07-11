@@ -188,8 +188,12 @@ def reconcile_with_existing(new_df: pd.DataFrame, output_path: Path) -> pd.DataF
 def save_output(df: pd.DataFrame, output_path: Path) -> None:
     """Save the DataFrame to CSV and Parquet."""
     df.to_csv(output_path, index=False, encoding="utf-8")
+    # Cast object columns to string to avoid mixed-type parquet errors
+    pq_df = df.copy()
+    for col in pq_df.select_dtypes(include=["object"]).columns:
+        pq_df[col] = pq_df[col].astype(str)
     parquet_path = output_path.with_suffix(".parquet")
-    df.to_parquet(parquet_path, index=False)
+    pq_df.to_parquet(parquet_path, index=False)
     log.info(f"Saved {len(df):,} records to {output_path} + {parquet_path}")
 
 

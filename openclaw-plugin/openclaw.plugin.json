@@ -21,7 +21,8 @@
       "query_charging_sites",
       "get_wiki",
       "summarize_district",
-      "check_new_incidents"
+      "check_new_incidents",
+      "clean_borderlands"
     ]
   }
 }

@@ -82,13 +82,15 @@ export default defineToolPlugin({
       name: "query_outages",
       label: "Query Outages",
       description:
-        "Query historic outage records (309k+). Filter by district, location (lat/lon with radius), year, cause, or minimum duration.",
+        "Query historic outage records (309k+). Filter by district, location (lat/lon with radius), year, exact date range, cause, or minimum duration.",
       parameters: Type.Object({
         district: Type.Optional(Type.String({ description: "District name" })),
         lat: Type.Optional(Type.Number({ description: "Latitude for proximity search" })),
         lon: Type.Optional(Type.Number({ description: "Longitude for proximity search" })),
         radius: Type.Optional(Type.Number({ description: "Search radius in km (default: 15)", default: 15 })),
         year: Type.Optional(Type.Number({ description: "Year filter" })),
+        start_date: Type.Optional(Type.String({ description: "Start date filter (YYYY-MM-DD)" })),
+        end_date: Type.Optional(Type.String({ description: "End date filter (YYYY-MM-DD)" })),
         cause: Type.Optional(Type.String({ description: "Outage cause category" })),
         min_duration: Type.Optional(Type.Number({ description: "Minimum duration in hours" })),
         top: Type.Optional(Type.Number({ description: "Number of results", default: 10 })),
@@ -99,13 +101,15 @@ export default defineToolPlugin({
           })
         ),
       }),
-      async execute({ district, lat, lon, radius, year, cause, min_duration, top, sort }) {
+      async execute({ district, lat, lon, radius, year, start_date, end_date, cause, min_duration, top, sort }) {
         const args: string[] = [];
         if (district) args.push("--district", district);
         if (lat !== undefined) args.push("--lat", String(lat));
         if (lon !== undefined) args.push("--lon", String(lon));
         if (radius !== undefined) args.push("--radius", String(radius));
         if (year !== undefined) args.push("--year", String(year));
+        if (start_date) args.push("--start-date", start_date);
+        if (end_date) args.push("--end-date", end_date);
         if (cause) args.push("--cause", cause);
         if (min_duration !== undefined) args.push("--min-duration", String(min_duration));
         if (top) args.push("--top", String(top));
@@ -227,6 +231,123 @@ export default defineToolPlugin({
         return runPythonTool("check_new_incidents");
       },
     }),
+
+    // ── clean_borderlands ─────────────────────────────────────────────
+    tool({
+      name: "clean_borderlands",
+      label: "Borderlands Sites",
+      description:
+        "Clean and geocode the Borderlands Long List of highly feasible chargepoint sites. Optionally cross-reference with risk predictions, existing chargepoints, and recommendation engine. Use this when asked about Borderlands sites, community chargepoint locations, or the Borderlands BOOST project.",
+      parameters: Type.Object({
+        top: Type.Optional(
+          Type.Number({ description: "Limit number of sites returned (default: all)" })
+        ),
+        local_authority: Type.Optional(
+          Type.String({ description: "Filter by local authority area (e.g. 'Cumberland', 'Northumberland')" })
+        ),
+        cross_ref: Type.Optional(
+          Type.Boolean({ description: "Cross-reference with risk/charging/recommendation data", default: false })
+        ),
+        radius: Type.Optional(
+          Type.Number({ description: "Cross-reference radius in km (default: 10)", default: 10 })
+        ),
+      }),
+      async execute({ top, local_authority, cross_ref, radius }) {
+        const args: string[] = [];
+        if (top !== undefined) args.push("--top", String(top));
+        if (local_authority) args.push("--local-authority", local_authority);
+        if (cross_ref) args.push("--cross-ref");
+        if (radius !== undefined) args.push("--radius", String(radius));
+        return runPythonTool("clean_borderlands", args);
+      },
+    }),
+
+    // ── forecast_outages_by_season ──────────────────────────────────────
+    tool({
+      name: "forecast_outages_by_season",
+      label: "Seasonal Outage Forecast",
+      description:
+        "Forecast potential outages by season based on historical data. Shows expected outage counts, ranges, duration stats, and top causes per season. Use this for seasonal planning and risk assessment.",
+      parameters: Type.Object({
+        season: Type.Optional(
+          Type.Union([
+            Type.Literal("Winter"),
+            Type.Literal("Spring"),
+            Type.Literal("Summer"),
+            Type.Literal("Autumn"),
+          ], { description: "Forecast for a specific season only" })
+        ),
+        year: Type.Optional(Type.Number({ description: "Target forecast year (informational only)" })),
+        district: Type.Optional(Type.String({ description: "Filter by district name" })),
+        cause: Type.Optional(Type.String({ description: "Filter by direct cause category" })),
+        include_duration: Type.Optional(Type.Boolean({ description: "Include average duration stats per season", default: false })),
+        include_causes: Type.Optional(Type.Boolean({ description: "Include top causes per season", default: false })),
+      }),
+      async execute({ season, year, district, cause, include_duration, include_causes }) {
+        const args: string[] = [];
+        if (season) args.push("--season", season);
+        if (year !== undefined) args.push("--year", String(year));
+        if (district) args.push("--district", district);
+        if (cause) args.push("--cause", cause);
+        if (include_duration) args.push("--include-duration");
+        if (include_causes) args.push("--include-causes");
+        return runPythonTool("forecast_outages_by_season", args);
+      },
+    }),
+
+    // ── count_outages_near_chargepoints ─────────────────────────────────
+    tool({
+      name: "count_outages_near_chargepoints",
+      label: "Outages Near Chargepoints",
+      description:
+        "Count unplanned outages within 2-mile radius of each Charge My Street chargepoint. Shows which sites are most affected by grid disruptions.",
+      parameters: Type.Object({
+        category: Type.Optional(
+          Type.String({ description: "Filter sites by category: V2X, Building-supplied, Other" })
+        ),
+        radius: Type.Optional(
+          Type.Number({ description: "Radius in km (default: 3.219 = 2 miles)", default: 3.218688 })
+        ),
+        top: Type.Optional(
+          Type.Number({ description: "Show top N sites by outage count (0 = all sites)", default: 0 })
+        ),
+      }),
+      async execute({ category, radius, top }) {
+        const args: string[] = [];
+        if (category) args.push("--category", category);
+        if (radius !== undefined) args.push("--radius", String(radius));
+        if (top !== undefined) args.push("--top", String(top));
+        return runPythonTool("count_outages_near_chargepoints", args);
+      },
+    }),
+
+    // ── tag_counties ─────────────────────────────────────────────────────
+    tool({
+      name: "tag_counties",
+      label: "County Lookup",
+      description:
+        "Check which UK ceremonial county a lat/lon belongs to. Supports single-point lookup or bulk tagging a CSV file (adds ceremonial_county column). Use this to find which county outages or charging sites are in.",
+      parameters: Type.Object({
+        lat: Type.Optional(Type.Number({ description: "Latitude for single-point lookup" })),
+        lon: Type.Optional(Type.Number({ description: "Longitude for single-point lookup" })),
+        bulk: Type.Optional(Type.String({ description: "CSV file path for bulk tagging (must have latitude/longitude columns)" })),
+        output: Type.Optional(Type.String({ description: "Output CSV path for bulk mode (default: overwrite input)" })),
+      }),
+      async execute({ lat, lon, bulk, output }) {
+        const args: string[] = [];
+        if (bulk) {
+          args.push("--bulk", bulk);
+          if (output) args.push("--output", output);
+        } else if (lat !== undefined && lon !== undefined) {
+          args.push("--lat", String(lat), "--lon", String(lon));
+        } else {
+          return JSON.stringify({
+            error: "Provide lat/lon for single lookup, or bulk=<csv_path> for bulk tagging",
+          });
+        }
+        return runPythonTool("tag_counties", args);
+      },
+    }),
   ],
 });
 
@@ -246,6 +367,10 @@ AVAILABLE TOOLS (USE THESE INSTEAD OF GENERIC COMMANDS):
 - summarize_district: Full district analysis (risk + outages + sites)
 - get_wiki: Dashboard documentation
 - check_new_incidents: Check for new incidents
+- clean_borderlands: Clean and geocode Borderlands Long List sites. Cross-ref with risk/charging/recommendations.
+- tag_counties: Check which UK ceremonial county a lat/lon belongs to. Single lookup or bulk CSV tagging.
+- count_outages_near_chargepoints: Count outages within 2-mile radius of CMS chargepoints. Shows which sites are most affected by grid disruptions.
+- forecast_outages_by_season: Forecast potential outages by season (Winter/Spring/Summer/Autumn). Shows expected counts, ranges, duration, and top causes.
 
 WORKFLOW FOR LOCATION QUERIES:
 1. When user mentions a place name → call geocode(query="<place>") first
@@ -259,7 +384,103 @@ EXAMPLE: "What's the risk in Lancaster?"
 → query_charging_sites(near_lat=54.05, near_lon=-2.80, radius=10) → find chargers
 → query_outages(lat=54.05, lon=-2.80, radius=15) → get outage history
 
-IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.`,
+WORKFLOW FOR COUNTY-LEVEL ANALYSIS:
+To find which county outages or charging sites are in, use tag_counties in bulk mode.
+This adds a "ceremonial_county" column to the CSV so you can group/filter by county.
+
+EXAMPLE: "Which county has the most unplanned outages?"
+→ tag_counties(bulk="data/df_cleaned.csv") → bulk-tag all outages with counties
+→ Then read the CSV and group by ceremonial_county to count outages per county
+
+EXAMPLE: "Tag all charging sites with their county"
+→ tag_counties(bulk="data/all_charging_sites.csv") → adds ceremonial_county column
+
+EXAMPLE: "What county is this specific outage in?"
+→ tag_counties(lat=54.89, lon=-2.93) → returns ceremonial_county for that point
+
+WORKFLOW FOR OUTAGE-CHARGEPOINT ANALYSIS:
+Use count_outages_near_chargepoints to find which CMS chargepoints are in outage-prone areas.
+
+EXAMPLE: "How many outages are near our chargepoints?"
+→ count_outages_near_chargepoints() → summary + per-site outage counts
+
+EXAMPLE: "Which V2X sites have the most outages nearby?"
+→ count_outages_near_chargepoints(category="V2X", top=10) → top 10 V2X sites by outage count
+
+EXAMPLE: "Show me chargepoints in high-outage areas"
+→ count_outages_near_chargepoints(top=10) → sites with most outages within 2 miles
+
+WORKFLOW FOR SEASONAL FORECASTING:
+Use forecast_outages_by_season to predict outage patterns based on historical data.
+
+EXAMPLE: "How many outages should we expect this winter?"
+→ forecast_outages_by_season(season="Winter") → Winter forecast with expected count and range
+
+EXAMPLE: "What are the seasonal outage patterns?"
+→ forecast_outages_by_season(include_duration=true, include_causes=true) → full seasonal breakdown
+
+EXAMPLE: "Forecast outages for Lancaster district"
+→ forecast_outages_by_season(district="Lancaster") → district-specific seasonal forecast
+
+IMPORTANT: The forecast is based on historical averages from years with reliable data (100+ outages/year). Always present it as an estimate, not a certainty. Include the confidence range (forecast_low to forecast_high) when reporting.
+
+WORKFLOW FOR CHAINED ANALYSIS (TOOL COMBINATIONS):
+Some questions require chaining multiple tools together. Here are step-by-step examples:
+
+EXAMPLE: "Number of power outages across the last 12 months in Cumbria and Northumberland ONLY"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → adds ceremonial_county column to all outages
+Step 2 → query_outages(year=2025) → get outages from last 12 months (adjust year as needed)
+Step 3 → Read the tagged CSV, filter where ceremonial_county is "Cumbria" or "Northumberland", count rows
+Step 4 → Report: "According to the data, there were X outages in Cumbria and Y in Northumberland in the last 12 months."
+
+EXAMPLE: "Length of outages – average and frequency in Cumbria and Northumberland ONLY"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → adds ceremonial_county column
+Step 2 → Read the tagged CSV, filter where ceremonial_county is "Cumbria" or "Northumberland"
+Step 3 → Compute: average duration-hours, count of outages per county
+Step 4 → Report: "Cumbria: Z outages, average duration X hours. Northumberland: Z outages, average duration Y hours."
+
+EXAMPLE: "Number of outages near CMS chargepoints in Cumbria and Northumberland in the next 12 months"
+Step 1 → count_outages_near_chargepoints() → get outage counts per chargepoint site
+Step 2 → tag_counties(bulk="data/all_charging_sites.csv") → tag chargepoints with counties
+Step 3 → Read tagged chargepoints, filter where ceremonial_county is "Cumbria" or "Northumberland"
+Step 4 → Match filtered chargepoints to the outage counts from Step 1
+Step 5 → forecast_outages_by_season(include_duration=true) → get seasonal forecast
+Step 6 → Combine: "Based on historical data, chargepoints in Cumbria/Northumberland had X outages within 2 miles. Forecasting forward 12 months, we expect Y outages (range: low-high)."
+
+EXAMPLE: "Outages near planned chargepoint installations in 6/12/18 months"
+Step 1 → query_charging_sites() → get all CMS chargepoints
+Step 2 → count_outages_near_chargepoints() → current outage exposure per site
+Step 3 → forecast_outages_by_season(include_duration=true) → seasonal forecast
+Step 4 → For 6-month forecast: sum next 2 seasons' forecast_expected
+Step 5 → For 12-month forecast: sum all 4 seasons' forecast_expected
+Step 6 → For 18-month forecast: sum all 4 seasons + next season's forecast_expected
+Step 7 → Report per timeframe with confidence ranges
+
+EXAMPLE: "Compare outage risk between Cumbria and Northumberland"
+Step 1 → tag_counties(bulk="data/df_cleaned.csv") → tag outages with counties
+Step 2 → query_outages(district="Carlisle") → Cumbria district data
+Step 3 → query_outages(district="Newcastle") → Northumberland area data
+Step 4 → forecast_outages_by_season(district="Carlisle") → Cumbria forecast
+Step 5 → forecast_outages_by_season(district="Newcastle") → Northumberland forecast
+Step 6 → Compare and report differences
+
+RULES FOR CHAINED ANALYSIS:
+- Always call tag_counties(bulk=...) FIRST when the question mentions specific counties
+- The tagged CSV is saved to the same path, so subsequent reads will have the county column
+- When combining tools, explain each step to the user so they understand the pipeline
+- If a tool chain produces no results at any step, stop and report which step failed
+- Never skip a tool call and guess the answer — always run the tools
+
+IMPORTANT: Always use these tools instead of writing Python scripts or using PowerShell commands. The tools return structured JSON data that you can summarize for the user.
+
+CRITICAL RULES — DO NOT HALLUCINATE:
+1. NEVER make up data. Every number, count, coordinate, risk level, or outage fact MUST come from a tool call. If you did not call a tool for it, do not state it.
+2. If a tool returns an error or empty results, tell the user exactly that. Say "The tool returned no results" or "The lookup failed" — do not invent plausible-sounding data instead.
+3. If a question cannot be answered with the available tools, say so: "I don't have a tool to answer that" or "That data is not available in the dashboard."
+4. Do not guess or estimate values. If the user asks for a specific metric and the tool does not provide it, say "I cannot retrieve that number."
+5. When summarising tool output, you may explain what the data means, but do not add numbers or facts that are not in the JSON output.
+6. If you are unsure whether a tool can answer a question, call the tool first and report what it actually returns. Never pre-fill an answer before checking.
+7. Prefix data claims with their source: "According to query_outages..." or "The tool returned..." so the user knows it came from real data, not your training knowledge.`,
       tag: "cms-system-prompt",
     });
   },
