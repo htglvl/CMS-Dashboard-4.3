@@ -5,6 +5,8 @@ Usage:
     python tools/query_outages.py --cause Weather --min-duration 2.0
     python tools/query_outages.py --top 5 --sort customers
     python tools/query_outages.py --lat 54.05 --lon -2.80 --radius 15
+    python tools/query_outages.py --start-date 2025-07-01 --end-date 2026-06-30
+    python tools/query_outages.py --district Carlisle --start-date 2024-01-01
 """
 
 import sys
@@ -47,6 +49,8 @@ def main():
     parser.add_argument("--lon", type=float, help="Longitude for proximity search")
     parser.add_argument("--radius", type=float, default=15.0, help="Radius in km (default: 15)")
     parser.add_argument("--year", type=int, help="Filter by year")
+    parser.add_argument("--start-date", type=str, help="Start date filter (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, help="End date filter (YYYY-MM-DD)")
     parser.add_argument("--cause", type=str, help="Filter by direct cause category")
     parser.add_argument("--min-duration", type=float, help="Minimum duration in hours")
     parser.add_argument("--top", type=int, default=10, help="Number of results")
@@ -78,6 +82,18 @@ def main():
 
         if args.year:
             df = df[df["year"] == args.year]
+
+        # Date range filter (exact date filtering)
+        if args.start_date or args.end_date:
+            if not pd.api.types.is_datetime64_any_dtype(df["incident_date_time"]):
+                df["incident_date_time"] = pd.to_datetime(df["incident_date_time"], errors="coerce", utc=True)
+            if args.start_date:
+                start = pd.to_datetime(args.start_date, utc=True)
+                df = df[df["incident_date_time"] >= start]
+            if args.end_date:
+                end = pd.to_datetime(args.end_date, utc=True) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                df = df[df["incident_date_time"] <= end]
+
         if args.cause:
             df = df[df["direct_cause_category"].str.lower().str.contains(args.cause.lower(), na=False)]
         if args.min_duration is not None:
@@ -109,8 +125,9 @@ def main():
         output = {
             "count": total_count,
             "filters": {"district": args.district, "lat": args.lat, "lon": args.lon,
-                        "radius_km": args.radius, "year": args.year, "cause": args.cause,
-                        "min_duration": args.min_duration, "sort": args.sort},
+                        "radius_km": args.radius, "year": args.year,
+                        "start_date": args.start_date, "end_date": args.end_date,
+                        "cause": args.cause, "min_duration": args.min_duration, "sort": args.sort},
             "results": results,
             "summary": {"avg_duration": round(avg_duration, 2), "total_customer_hours": round(total_customer_hours, 1)},
         }

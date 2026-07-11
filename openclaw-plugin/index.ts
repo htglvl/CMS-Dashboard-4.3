@@ -82,13 +82,15 @@ export default defineToolPlugin({
       name: "query_outages",
       label: "Query Outages",
       description:
-        "Query historic outage records (309k+). Filter by district, location (lat/lon with radius), year, cause, or minimum duration.",
+        "Query historic outage records (309k+). Filter by district, location (lat/lon with radius), year, exact date range, cause, or minimum duration.",
       parameters: Type.Object({
         district: Type.Optional(Type.String({ description: "District name" })),
         lat: Type.Optional(Type.Number({ description: "Latitude for proximity search" })),
         lon: Type.Optional(Type.Number({ description: "Longitude for proximity search" })),
         radius: Type.Optional(Type.Number({ description: "Search radius in km (default: 15)", default: 15 })),
         year: Type.Optional(Type.Number({ description: "Year filter" })),
+        start_date: Type.Optional(Type.String({ description: "Start date filter (YYYY-MM-DD)" })),
+        end_date: Type.Optional(Type.String({ description: "End date filter (YYYY-MM-DD)" })),
         cause: Type.Optional(Type.String({ description: "Outage cause category" })),
         min_duration: Type.Optional(Type.Number({ description: "Minimum duration in hours" })),
         top: Type.Optional(Type.Number({ description: "Number of results", default: 10 })),
@@ -99,13 +101,15 @@ export default defineToolPlugin({
           })
         ),
       }),
-      async execute({ district, lat, lon, radius, year, cause, min_duration, top, sort }) {
+      async execute({ district, lat, lon, radius, year, start_date, end_date, cause, min_duration, top, sort }) {
         const args: string[] = [];
         if (district) args.push("--district", district);
         if (lat !== undefined) args.push("--lat", String(lat));
         if (lon !== undefined) args.push("--lon", String(lon));
         if (radius !== undefined) args.push("--radius", String(radius));
         if (year !== undefined) args.push("--year", String(year));
+        if (start_date) args.push("--start-date", start_date);
+        if (end_date) args.push("--end-date", end_date);
         if (cause) args.push("--cause", cause);
         if (min_duration !== undefined) args.push("--min-duration", String(min_duration));
         if (top) args.push("--top", String(top));
