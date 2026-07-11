@@ -103,16 +103,17 @@ timeout /t 1 /nobreak >nul
 start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
 timeout /t 2 /nobreak >nul
 
-REM --- 9. Start Localtunnel ---
-echo [9/9] Starting Localtunnel on port 8501...
-start "Localtunnel" cmd /c "npx localtunnel --port 8501 --subdomain cms-dashboard"
-timeout /t 3 /nobreak >nul
+REM --- 9. Start Cloudflare tunnel ---
+echo [9/9] Starting Cloudflare tunnel on port 8501...
+start "Cloudflare Tunnel" cmd /c "call venv\Scripts\activate.bat && python capture_tunnel_url.py"
+timeout /t 5 /nobreak >nul
 
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
 echo   OpenClaw:  http://localhost:8501/oclaw
-echo   Tunnel:    https://cms-dashboard.loca.lt
+echo   Tunnel:    Check the Cloudflare Tunnel window for the public URL
+echo              URL also saved to tunnel_url.txt
 echo  ================================================
 echo.
 echo  Press any key to stop all services...
