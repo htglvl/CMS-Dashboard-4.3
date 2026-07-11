@@ -519,6 +519,12 @@ def save_models(rf_model, xgb_model, xgb_label_encoder):
     import joblib
 
     MODELS_DIR.mkdir(exist_ok=True)
+
+    # Remove old files before writing new ones
+    for path in [RF_MODEL_PATH, XGB_MODEL_PATH]:
+        if path.exists():
+            path.unlink()
+
     joblib.dump(rf_model, RF_MODEL_PATH)
     joblib.dump({"model": xgb_model, "label_encoder": xgb_label_encoder}, XGB_MODEL_PATH)
     log.info("Models saved to %s", MODELS_DIR)
