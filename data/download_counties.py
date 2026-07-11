@@ -1,4 +1,4 @@
-"""Download UK ceremonial county boundaries from ONS Open Geography Portal.
+"""Download UK ceremonial county boundaries from OS BoundaryLine.
 
 Usage:
     python data/download_counties.py
@@ -12,11 +12,11 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 
-# OS Boundary-Line FeatureServer endpoint for UK ceremonial counties (England, Scotland, Wales)
-# Source: Ordnance Survey via ArcGIS / ONS Open Geography Portal
+# OS BoundaryLine FeatureServer endpoint for UK ceremonial counties (England, Scotland, Wales)
+# Source: Ordnance Survey BoundaryLine via ArcGIS
 # If this URL stops working, find the updated URL at:
 # https://geoportal.statistics.gov.uk/search?q=ceremonial%20counties
-ONS_ARCGIS_URL = (
+OS_BOUNDARYLINE_URL = (
     "https://services.arcgis.com/qHLhLQrcvEnxjtPr/arcgis/rest/services/"
     "OS_Boundaryline/FeatureServer/12/query"
 )
@@ -28,7 +28,7 @@ def fetch_all_features(base_url: str) -> list[dict]:
     """Fetch all features from an ArcGIS FeatureServer, handling pagination."""
     all_features = []
     offset = 0
-    page_size = 20
+    page_size = 20  # Small page size: each feature has complex geometries (~500KB each)
 
     while True:
         params = urllib.parse.urlencode({
@@ -62,17 +62,17 @@ def main():
         help="Output GeoJSON file path",
     )
     parser.add_argument(
-        "--url", type=str, default=ONS_ARCGIS_URL,
+        "--url", type=str, default=OS_BOUNDARYLINE_URL,
         help="ArcGIS FeatureServer query URL",
     )
     args = parser.parse_args()
 
     try:
-        print(f"Fetching ceremonial county boundaries from ONS...", file=sys.stderr)
+        print("Fetching ceremonial county boundaries from OS BoundaryLine...", file=sys.stderr)
         features = fetch_all_features(args.url)
 
         if not features:
-            print(json.dumps({"error": "No features returned from ONS API", "features": 0}))
+            print(json.dumps({"error": "No features returned from OS BoundaryLine API", "features": 0}), file=sys.stderr)
             sys.exit(1)
 
         # Build GeoJSON FeatureCollection
@@ -91,7 +91,7 @@ def main():
         for feat in features:
             props = feat.get("properties", {})
             name = (props.get("NAME") or props.get("CTY23NM") or
-                    props.get("CTY22NM") or props.get("County") or "")
+                    props.get("CTY22NM") or props.get("County") or "").strip()
             if name:
                 county_names.append(name)
 
