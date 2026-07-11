@@ -120,14 +120,14 @@ timeout /t 2 /nobreak >nul
 
 REM --- 10. Start Cloudflare tunnel ---
 echo [10/10] Starting Cloudflare tunnel on port 8501...
-start "Cloudflare Tunnel" cmd /c "cloudflared.exe tunnel run cms-dashboard"
+start "Cloudflare Tunnel" cmd /c "cloudflared.exe tunnel --url http://localhost:8501"
 timeout /t 3 /nobreak >nul
 
 echo.
 echo  ================================================
 echo   Dashboard: http://localhost:8501/home
 echo   OpenClaw:  http://localhost:8501/oclaw
-echo   Tunnel:    https://cms-dashboard.cfargotunnel.com
+echo   Tunnel:    Check cloudflared window for the public URL
 echo  ================================================
 echo.
 echo  Press any key to stop all services...
