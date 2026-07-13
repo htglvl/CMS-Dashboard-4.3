@@ -13,7 +13,6 @@
 3. [OpenClaw Use Cases](#3-openclaw-use-cases)
 4. [Risks and Limitations of Using OpenClaw](#4-risks-and-limitations-of-using-openclaw)
 5. [Recommendations: Implementing OpenClaw in Other Projects](#5-recommendations-implementing-openclaw-in-other-projects)
-6. [Future Deployment Discussion](#6-future-deployment-discussion)
 
 ---
 
