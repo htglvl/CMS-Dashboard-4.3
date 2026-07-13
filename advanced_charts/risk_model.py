@@ -628,15 +628,16 @@ def _train_and_save():
 
     save_models(rf_model, xgb_model, xgb_le)
 
-    # Save predictions using the most recent feature window
-    latest_cutoff = cutoff_dates[-1]
-    latest_features = samples[samples["cutoff_date"] == latest_cutoff]
-    # Only keep cells with actual data
-    has_data = latest_features[FEATURE_COLS].sum(axis=1) > 0
-    latest_features = latest_features[has_data]
+    # Save predictions for the full grid (not just the last sliding window)
+    log.info("Building full grid features for prediction CSV...")
+    outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
+    full_features = build_grid_features(outages)
+    full_features = assign_risk_labels(full_features)
+    has_data = full_features[FEATURE_COLS].sum(axis=1) > 0
+    full_features = full_features[has_data]
 
     for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
-        preds = predict_cells(model, latest_features, le)
+        preds = predict_cells(model, full_features, le)
         out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
         preds.to_csv(out_path, index=False)
         log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
