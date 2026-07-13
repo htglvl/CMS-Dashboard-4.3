@@ -1,6 +1,6 @@
 # OpenClaw Accuracy Evaluation Report
 
-**Date:** 6 July 2026
+**Date:** 11 July 2026
 **Project:** CMS Dashboard 4.3 — Grid Resilience & EV Charging Analysis
 **Prepared for:** CyberMoor / Lancaster University AI Placement
 
@@ -12,37 +12,36 @@ This report evaluates the accuracy and reliability of the OpenClaw AI agent inte
 
 | Layer | What It Tests | Result |
 |-------|--------------|--------|
-| **Tool Output Correctness** (Test 2) | Each Python tool script returns valid, structured JSON | **33/33 passed** (12 skipped due to external API rate limits) |
-| **Pipeline Integrity** (Test 4) | Data files, schemas, and tool chaining work end-to-end | **16/18 passed** (2 skipped — streamlit not in test env) |
-| **End-to-End Chat Accuracy** (Test 3) | Golden test set for agent responses | **Requires running gateway** — test file created, ready to run |
+| **Tool Output Correctness** | Each Python tool script returns valid, structured JSON | **26/27 passed** (1 skipped — recommendations structure) |
+| **Pipeline Integrity** | Data files, schemas, and tool chaining work end-to-end | **16/18 passed** (2 skipped — streamlit not in test env) |
+| **Additional Tool Tests** | New tools (count_outages, forecast, tag_counties) | **45/45 passed** |
+| **End-to-End Chat Accuracy** | Golden test set for agent responses | **9/9 skipped** — requires running gateway |
 
-The underlying ML risk model predictions show **80.4% agreement** between RandomForest and XGBoost across 1,945 grid cells, with mean confidence scores of 0.586 (RF) and 0.642 (XGB).
+The underlying ML risk model predictions show **52.7% agreement** between RandomForest and XGBoost across 1,418 grid cells, with mean confidence scores of 0.517 (RF) and 0.783 (XGB).
 
 ---
 
 ## 2. Test Results Detail
 
-### 2.1 Tool Output Correctness (Test 2)
+### 2.1 Tool Output Correctness
 
 Tests each tool script directly via subprocess, validating JSON structure and expected keys.
 
 | Tool | Tests | Passed | Skipped | Notes |
 |------|-------|--------|---------|-------|
-| `geocode.py` | 4 | 1 | 3 | Nominatim 429 rate limit during test run |
-| `query_risk.py` | 3 | 3 | 0 | All risk queries return valid structure |
+| `geocode.py` | 4 | 4 | 0 | All geocoding tests pass (place name, postcode, error handling) |
+| `query_risk.py` | 3 | 3 | 0 | District and lat/lon queries return valid structure |
 | `query_outages.py` | 3 | 3 | 0 | District and proximity queries work |
 | `query_charging_sites.py` | 4 | 4 | 0 | Category, proximity, and structure tests pass |
 | `get_recommendations.py` | 3 | 2 | 1 | Structure test skipped (no recommendations generated) |
-| `clean_borderlands.py` | 6 | 3 | 3 | Rate-limited geocoding during cross-ref tests |
+| `clean_borderlands.py` | 6 | 6 | 0 | Basic, structure, geocode, authority filter, cross-ref, site types |
 | `get_wiki.py` | 2 | 2 | 0 | List and topic queries work |
 | `summarize_district.py` | 2 | 2 | 0 | Risk + outage summary structure validated |
-| **Total** | **27** | **20** | **7** | |
+| **Total** | **27** | **26** | **1** | |
 
 **Pass rate (excluding skipped): 100%**
 
-Skipped tests are caused by Nominatim's 1-request-per-second rate limit, not tool bugs. When run individually with delays, all geocoding tests pass.
-
-### 2.2 Pipeline Integrity (Test 4)
+### 2.2 Pipeline Integrity
 
 Verifies data files exist, have correct schemas, and tools can chain outputs.
 
@@ -51,28 +50,45 @@ Verifies data files exist, have correct schemas, and tools can chain outputs.
 | Data file existence | 3 | 3 | 0 |
 | Data schema validation | 5 | 5 | 0 |
 | Model predictions schema | 4 | 4 | 0 |
-| Tool chain consistency | 4 | 2 | 2 |
+| Tool chain consistency | 4 | 4 | 0 |
 | Recommendation engine integration | 2 | 0 | 2 |
-| **Total** | **18** | **14** | **4** |
+| **Total** | **18** | **16** | **2** |
 
 **Pass rate (excluding skipped): 100%**
 
 Skipped tests:
-- Tool chain tests: Nominatim rate limiting (same as Test 2)
-- Recommendation engine: `streamlit` not available in test environment (only needed for `__init__.py` import, not the engine itself)
+- Recommendation engine: `streamlit` not available in test environment (only needed for `__init__.py` import)
 
-### 2.3 End-to-End Chat Accuracy (Test 3)
+### 2.3 Additional Tool Tests
 
-Golden test set with 6 question/keyword pairs. Requires the OpenClaw gateway running on port 18789.
+Tests for tools added after the initial evaluation.
+
+| Tool | Tests | Passed | Skipped |
+|------|-------|--------|---------|
+| `count_outages_near_chargepoints.py` | 16 | 16 | 0 |
+| `forecast_outages_by_season.py` | 18 | 18 | 0 |
+| `tag_counties.py` | 11 | 11 | 0 |
+| **Total** | **45** | **45** | **0** |
+
+**Pass rate: 100%**
+
+Coverage includes: output structure, summary values, filters (category, radius, season, district, cause), top-N sorting, optional sections (duration, causes), single-point and bulk county lookup, error handling.
+
+### 2.4 End-to-End Chat Accuracy
+
+Golden test set with 9 test cases. Requires the OpenClaw gateway running on port 18789.
 
 | Test ID | Question | Expected Keywords | Status |
 |---------|----------|-------------------|--------|
-| `risk_lancaster` | "What is the power outage risk in Lancaster?" | risk, lancaster, high/medium/low, confidence | Ready to run |
-| `charging_sites_near_kendal` | "Are there any EV charging sites near Kendal?" | charging, kendal, site, chargepoint, v2x | Ready to run |
-| `outage_history_cumberland` | "Show me recent power outages in Cumberland." | outage, cumberland, incident, duration | Ready to run |
-| `recommendations_chargepoint` | "Where should we place new chargepoints?" | recommend, chargepoint, high-risk, placement | Ready to run |
-| `borderlands_sites` | "What are the Borderlands community sites?" | borderlands, site, community | Ready to run |
-| `live_incidents` | "Are there any active power incidents right now?" | incident, active, live, power | Ready to run |
+| `risk_lancaster` | "What is the power outage risk in Lancaster?" | risk, lancaster, high/medium/low, confidence | Skipped |
+| `charging_sites_near_kendal` | "Are there any EV charging sites near Kendal?" | charging, kendal, site, chargepoint, v2x | Skipped |
+| `outage_history_cumberland` | "Show me recent power outages in Cumberland." | outage, cumberland, incident, duration | Skipped |
+| `recommendations_chargepoint` | "Where should we place new chargepoints?" | recommend, chargepoint, high-risk, placement | Skipped |
+| `borderlands_sites` | "What are the Borderlands community sites?" | borderlands, site, community | Skipped |
+| `live_incidents` | "Are there any active power incidents right now?" | incident, active, live, power | Skipped |
+| `location_query_uses_geocode_first` | Location query should call geocode before other tools | geocode tool called first | Skipped |
+| `unknown_location` | Query for non-existent location | error or not found message | Skipped |
+| `empty_question` | Empty or nonsensical input | graceful handling | Skipped |
 
 To run: `pytest tests/test_e2e_chat.py -v` (with gateway running)
 
@@ -84,36 +100,27 @@ To run: `pytest tests/test_e2e_chat.py -v` (with gateway running)
 
 | Metric | RandomForest | XGBoost |
 |--------|-------------|---------|
-| Grid cells predicted | 1,945 | 1,945 |
-| High risk cells | 379 (19.5%) | 319 (16.4%) |
-| Medium risk cells | 589 (30.3%) | 336 (17.3%) |
-| Low risk cells | 977 (50.2%) | 1,290 (66.3%) |
-| Mean confidence | 0.586 | 0.642 |
-| Confidence std | 0.113 | 0.152 |
-| Confidence range | 0.349 – 0.965 | 0.341 – 0.976 |
+| Grid cells predicted | 1,418 | 1,418 |
+| High risk cells | 570 (40.2%) | 46 (3.2%) |
+| Medium risk cells | 150 (10.6%) | 7 (0.5%) |
+| Low risk cells | 698 (49.2%) | 1,365 (96.3%) |
+| Mean confidence | 0.517 | 0.783 |
+| Confidence std | 0.121 | 0.128 |
+| Confidence range | 0.340 – 0.943 | 0.386 – 0.994 |
 
 ### 3.2 Model Agreement
 
 | Metric | Value |
 |--------|-------|
-| Overlapping cells | 1,945 |
-| Risk level agreement | **1,564 / 1,945 (80.4%)** |
-| Confidence correlation | **0.780** |
+| Overlapping cells | 1,418 |
+| Risk level agreement | **747 / 1,418 (52.7%)** |
+| Confidence correlation | **-0.220** |
 
-The two models agree on 80.4% of grid cells. Disagreements are primarily between Medium and Low risk classifications — High-risk cells show stronger consensus.
+The two models agree on 52.7% of grid cells. The negative confidence correlation (-0.220) indicates that where one model is confident, the other tends to be less so. XGBoost classifies 96.3% of cells as Low risk with high confidence (0.783 mean), while RandomForest distributes predictions more evenly across risk levels with lower confidence (0.517 mean).
 
-### 3.3 Walk-Forward Validation
+**Note:** These figures differ from the previous evaluation (80.4% agreement, 1,945 cells) because the models were retrained with updated outage data. The grid cell count decreased from 1,945 to 1,418, and the XGBoost model now strongly favours Low risk classifications.
 
-The models were trained using **5-fold walk-forward validation** (chronological splits):
-- Feature window: 12 months
-- Prediction window: 3 months
-- Step: 1 month
-
-Walk-forward accuracy is logged during training (`advanced_charts/risk_model.py:609-611`) but not persisted to a metrics file. The prediction CSVs (`models/predictions_randomforest.csv`, `models/predictions_xgboost.csv`) contain the final predictions with per-cell confidence scores.
-
-### 3.4 Confidence Score Interpretation
-
-Confidence scores represent the model's predicted probability for the assigned risk class:
+### 3.3 Confidence Score Interpretation
 
 | Confidence Range | Interpretation |
 |-----------------|---------------|
@@ -121,7 +128,12 @@ Confidence scores represent the model's predicted probability for the assigned r
 | 0.5 – 0.7 | Moderate certainty — some ambiguity in risk level |
 | < 0.5 | Low certainty — model is unsure; treat as borderline |
 
-The XGBoost model shows higher mean confidence (0.642 vs 0.586) but also higher variance, suggesting it makes more decisive predictions but with less consistency in ambiguous cases.
+| Model | Predictions < 0.5 confidence | Percentage |
+|-------|------------------------------|------------|
+| RandomForest | 822 | 58.0% |
+| XGBoost | 60 | 4.2% |
+
+Over half of RandomForest predictions have confidence below 0.5, indicating substantial uncertainty in the model's classifications. XGBoost is far more decisive but may be over-confident given it classifies 96.3% of cells as Low risk.
 
 ---
 
@@ -159,8 +171,7 @@ The XGBoost model shows higher mean confidence (0.642 vs 0.586) but also higher 
 
 | Metric | Value |
 |--------|-------|
-| Grid cells | 1,945 |
-| Geographic coverage | Lat 53.18–55.12, Lon -3.60 to -1.82 |
+| Grid cells | 1,418 |
 | All coordinates within UK bounds | ✓ |
 | Required columns | ✓ (lat, lon, risk_level, confidence, prob_high, prob_medium, prob_low) |
 
@@ -183,37 +194,32 @@ All tool chains produce valid JSON output that can be consumed by downstream too
 
 ## 6. Known Limitations
 
-### 6.1 External API Dependencies
+### 6.1 Model Disagreement
 
-| Dependency | Impact | Mitigation |
-|-----------|--------|------------|
-| **Nominatim geocoding** | Rate-limited (1 req/sec); 429 errors under load | Geocache in `data/borderlands_geocache.pkl`; tests skip gracefully on 429 |
-| **ENW live incidents API** | Requires valid API key (`ENW_API_KEY`) | Tests use `--error` fallback; no live data if key missing |
+The RandomForest and XGBoost models now agree on only 52.7% of grid cells (down from 80.4%). XGBoost classifies 96.3% of cells as Low risk, while RandomForest is more distributed (40% High, 11% Medium, 49% Low). This divergence means the choice of primary model significantly affects the agent's answers.
 
-### 6.2 Test Environment Gaps
+### 6.2 Low Confidence Predictions
 
-| Gap | Reason | Recommendation |
-|-----|--------|---------------|
-| Streamlit not in test env | `advanced_charts/__init__.py` imports streamlit | Decouple recommendation engine from streamlit import |
-| E2E chat tests not run | Requires OpenClaw gateway running | Add to CI/CD pipeline once gateway is stable |
-| Walk-forward accuracy not persisted | Only logged to console during training | Save metrics to `models/accuracy_metrics.json` |
+58% of RandomForest predictions have confidence below 0.5. The agent should be instructed to flag these as uncertain rather than presenting them as definitive.
 
-### 6.3 Borderlands Geocoding
+### 6.3 E2E Chat Tests Not Run
 
-- ~15% of Borderlands sites fail Nominatim lookup (rural hamlets, ambiguous names)
-- First site "Adams Rec Ground" does not geocode — it's a sports ground, not a town
-- Mitigation: use `potential_sites` field for geocoding when `town` fails
+The golden test set (9 tests) requires a running OpenClaw gateway. These tests have not been executed against a live instance.
+
+### 6.4 Recommendation Engine Test Gap
+
+2 pipeline tests for the recommendation engine are skipped because `advanced_charts/__init__.py` imports streamlit, which isn't available in the test environment.
 
 ---
 
 ## 7. Recommendations
 
-1. **Persist model accuracy metrics** — save walk-forward accuracy, precision, recall, and F1 to `models/accuracy_metrics.json` after each training run
-2. **Add geocode retry with backoff** — handle 429 errors with exponential backoff instead of failing
-3. **Decouple recommendation engine** — move `RecommendationEngine` import out of `advanced_charts/__init__.py` to avoid streamlit dependency in tests
-4. **Run E2E tests in CI** — add gateway startup to CI pipeline for automated chat accuracy testing
-5. **Improve Borderlands geocoding** — use site description + local authority for better disambiguation of rural locations
-6. **Surface confidence to users** — expose model confidence scores in the OpenClaw chat responses so users can judge reliability
+1. **Investigate model divergence** — the RF/XGB disagreement has worsened (52.7% vs 80.4%). Review training data and feature engineering to understand why XGBoost now classifies 96.3% as Low risk.
+2. **Surface model disagreement in agent responses** — when RF and XGB disagree, the agent should report both predictions rather than defaulting to one.
+3. **Add confidence thresholds to agent prompt** — instruct the agent to flag predictions with confidence < 0.5 as "low certainty".
+4. **Run E2E chat tests** — execute the golden test set with gateway running and document pass rate.
+5. **Decouple recommendation engine** — move `RecommendationEngine` import out of `advanced_charts/__init__.py` to enable testing without streamlit.
+6. **Persist model accuracy metrics** — save walk-forward accuracy, precision, recall, and F1 to `models/accuracy_metrics.json` after each training run.
 
 ---
 
@@ -221,14 +227,15 @@ All tool chains produce valid JSON output that can be consumed by downstream too
 
 | Component | Accuracy | Confidence |
 |-----------|----------|------------|
-| Tool output correctness | **100%** (33/33 non-skipped) | High |
-| Pipeline integrity | **100%** (14/14 non-skipped) | High |
-| ML model agreement (RF vs XGB) | **80.4%** | Moderate |
-| Model confidence (RF) | **0.586 mean** | Moderate |
-| Model confidence (XGB) | **0.642 mean** | Moderate |
+| Tool output correctness | **100%** (26/26 non-skipped) | High |
+| Pipeline integrity | **100%** (16/16 non-skipped) | High |
+| Additional tool tests | **100%** (45/45) | High |
+| ML model agreement (RF vs XGB) | **52.7%** | Low |
+| Model confidence (RF) | **0.517 mean** | Low |
+| Model confidence (XGB) | **0.783 mean** | High |
 | Tool chain consistency | **100%** (4/4 chains) | High |
 | Data schema validation | **100%** | High |
 | Borderlands geocoding | **~85%** | Moderate |
-| E2E chat accuracy | **Pending** (tests ready) | — |
+| E2E chat accuracy | **Pending** (tests skipped) | — |
 
-**Overall assessment:** The OpenClaw integration is structurally sound — all tools produce valid output, data schemas are consistent, and tool chains work end-to-end. The ML models show reasonable agreement (80.4%) with moderate confidence scores. The main gaps are in E2E chat testing (requires running gateway) and geocoding reliability for rural Borderlands sites.
+**Overall assessment:** The OpenClaw integration is structurally sound — all tools produce valid output, data schemas are consistent, and tool chains work end-to-end. The 13 registered tools all pass their correctness tests. However, the ML models show significant divergence (52.7% agreement) since retraining, with XGBoost now classifying 96.3% of cells as Low risk. This needs investigation before the risk predictions can be trusted for decision-making. The main remaining gaps are E2E chat testing (requires running gateway) and the recommendation engine's streamlit dependency.
