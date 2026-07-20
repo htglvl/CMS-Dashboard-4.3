@@ -1,0 +1,9 @@
+name = "cms"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# KV namespace — create with: npx wrangler kv:namespace create TUNNEL_KV
+# Then paste the id below.
+[[kv_namespaces]]
+binding = "TUNNEL_KV"
+id = "5d0c47b199da4b389d38ff6cf446814f"

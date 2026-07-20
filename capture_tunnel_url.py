@@ -1,35 +1,53 @@
 """Capture Cloudflare tunnel URL with auto-restart.
 
 Starts cloudflared, captures the trycloudflare.com URL, saves it to
-tunnel_url.txt, copies to clipboard, and sends via ntfy.sh.
+tunnel_url.txt, copies to clipboard, and updates Cloudflare Workers KV.
 
-Monitors the process and restarts automatically if it exits or becomes
-unresponsive (health check every HEALTH_CHECK_INTERVAL seconds).
+Restarts every RESTART_INTERVAL (12h) or on failure.  The permanent
+redirect at https://cms.cms-tunnel-redirect.workers.dev/ always points
+to the latest tunnel URL via KV.
 """
 
+import os
 import re
 import sys
 import time
 import subprocess
 import requests
+from dotenv import load_dotenv
 
-NTFY_TOPIC = "cms-dashboard-tunnel"
+load_dotenv()
+
 MAX_RESTARTS = 10               # restart cap before giving up
 RESTART_DELAY = 5               # seconds between restarts
+RESTART_INTERVAL = 12 * 3600    # 12 hours in seconds
 HEALTH_CHECK_INTERVAL = 120     # seconds between health pings
 HEALTH_CHECK_TIMEOUT = 10       # seconds to wait for a response
 
-def send_notification(url):
-    """Send URL via ntfy.sh (free, no login needed)."""
+def update_cloudflare_kv(url):
+    """Push the new tunnel URL to Cloudflare Workers KV."""
+    token = os.environ.get("CF_API_TOKEN")
+    account_id = os.environ.get("CF_ACCOUNT_ID")
+    namespace_id = os.environ.get("CF_KV_NAMESPACE_ID")
+
+    if not all([token, account_id, namespace_id]):
+        print("Cloudflare KV env vars not set, skipping.", file=sys.stderr)
+        return
+
     try:
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=f"CMS Dashboard Tunnel URL:\n{url}".encode(),
-            headers={"Title": "CMS Dashboard URL"}
+        resp = requests.put(
+            f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
+            f"/storage/kv/namespaces/{namespace_id}/values/tunnel_url",
+            headers={"Authorization": f"Bearer {token}"},
+            data=url.encode(),
+            timeout=10,
         )
-        print(f"Notification sent to ntfy.sh/{NTFY_TOPIC}", file=sys.stderr)
+        if resp.status_code == 200:
+            print("Updated Cloudflare KV with new tunnel URL.", file=sys.stderr)
+        else:
+            print(f"Cloudflare KV update failed ({resp.status_code}): {resp.text}", file=sys.stderr)
     except Exception as e:
-        print(f"Failed to send notification: {e}", file=sys.stderr)
+        print(f"Failed to update Cloudflare KV: {e}", file=sys.stderr)
 
 def start_cloudflared():
     """Spawn a cloudflared quick-tunnel process."""
@@ -68,7 +86,7 @@ def health_check(url):
         return False
 
 def save_and_notify(url):
-    """Persist the URL and broadcast it."""
+    """Persist the URL and push to Cloudflare KV."""
     with open("tunnel_url.txt", "w") as f:
         f.write(url)
 
@@ -77,10 +95,10 @@ def save_and_notify(url):
     print(f"\nTunnel URL: {url}", file=sys.stderr)
     print(f"Saved to: tunnel_url.txt", file=sys.stderr)
     print(f"Copied to clipboard!", file=sys.stderr)
-    send_notification(url)
+    update_cloudflare_kv(url)
 
 def run_tunnel():
-    """Main loop: start tunnel, monitor, auto-restart on failure."""
+    """Main loop: start tunnel, monitor, restart every 12h or on failure."""
     restarts = 0
 
     while restarts < MAX_RESTARTS:
@@ -100,15 +118,22 @@ def run_tunnel():
         save_and_notify(url)
         restarts = 0  # reset on successful start
 
-        # Monitor loop — check process liveness + periodic health ping
+        # Monitor loop — health check + scheduled 12h restart
         last_health = time.time()
+        started_at = time.time()
         while True:
             # 1. Has the process exited?
             if proc.poll() is not None:
                 print(f"\ncloudflared exited (code {proc.returncode}).", file=sys.stderr)
                 break
 
-            # 2. Periodic health check
+            # 2. Scheduled restart every 12 hours
+            if time.time() - started_at >= RESTART_INTERVAL:
+                print(f"\n12-hour restart reached. Cycling tunnel...", file=sys.stderr)
+                proc.kill()
+                break
+
+            # 3. Periodic health check
             if time.time() - last_health >= HEALTH_CHECK_INTERVAL:
                 if not health_check(url):
                     print(f"\nHealth check failed for {url}. Restarting...", file=sys.stderr)
