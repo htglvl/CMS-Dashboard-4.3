@@ -362,9 +362,11 @@ def main():
                     # Clear flexibility tender selection when clicking elsewhere
                     st.session_state.flex_selected_substation = None
                     st.session_state.flex_page_index = 0
-                    # Persist popup HTML across reruns
+                    # Persist popup HTML across reruns; clear when clicking blank spot
                     if popup_html:
                         st.session_state.last_popup_html = popup_html
+                    else:
+                        st.session_state.last_popup_html = None
                     print(f"[CLICK] {'Chargepoint' if result['is_chargepoint'] else 'Location'}: {result['selected_site']}")
                     print(f"[CLICK] popup_html saved: {repr(popup_html)[:200]}")
 
