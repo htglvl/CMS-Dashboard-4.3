@@ -115,6 +115,8 @@ def main():
         st.session_state.flex_selected_substation = None
     if "flex_page_index" not in st.session_state:
         st.session_state.flex_page_index = 0
+    if "last_flex_popup" not in st.session_state:
+        st.session_state.last_flex_popup = None
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
@@ -319,23 +321,26 @@ def main():
 
         # ── Flexibility tender click detection ───────────────────────────
         _is_flex_click = popup_html and 'class="flex-tender"' in str(popup_html)
-        if _is_flex_click:
+        _last_flex_popup = st.session_state.get("last_flex_popup")
+        if _is_flex_click and popup_html != _last_flex_popup:
             import re
             _m = re.search(r'data-substation="([^"]+)"', str(popup_html))
             if _m:
                 _clicked_sub = _m.group(1)
-                if _clicked_sub != st.session_state.flex_selected_substation:
-                    st.session_state.flex_selected_substation = _clicked_sub
-                    st.session_state.flex_page_index = 0
-                    # Clear chargepoint selection
-                    st.session_state.pin_lat = None
-                    st.session_state.pin_lng = None
-                    st.session_state.selected_site = None
-                    st.session_state.last_popup_html = popup_html
-                    print(f"[FLEX-CLICK] Selected substation: {_clicked_sub}")
-                    st.rerun()
+                st.session_state.last_flex_popup = popup_html
+                st.session_state.flex_selected_substation = _clicked_sub
+                st.session_state.flex_page_index = 0
+                # Set pin on clicked coordinates and mark as custom location
+                # so charts use coordinate-based outage lookup
+                if last_object:
+                    st.session_state.pin_lat = last_object['lat']
+                    st.session_state.pin_lng = last_object['lng']
+                st.session_state.selected_site = f"\U0001f4cd Location ({_clicked_sub})"
+                st.session_state.last_popup_html = popup_html
+                print(f"[FLEX-CLICK] Selected substation: {_clicked_sub}")
+                st.rerun()
 
-        if last_clicked or last_object:
+        elif last_clicked or last_object:
             # Get coords from whichever is available
             if last_object:
                 click_lat = last_object['lat']
@@ -362,6 +367,7 @@ def main():
                     # Clear flexibility tender selection when clicking elsewhere
                     st.session_state.flex_selected_substation = None
                     st.session_state.flex_page_index = 0
+                    st.session_state.last_flex_popup = None
                     # Persist popup HTML across reruns; clear when clicking blank spot
                     if popup_html:
                         st.session_state.last_popup_html = popup_html

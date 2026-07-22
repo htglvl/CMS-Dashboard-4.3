@@ -212,7 +212,7 @@ def create_advanced_map(
             # Higher risk = more opaque
             opacity = 0.4 + (prob_h * 0.4) + (prob_m * 0.15)
 
-            folium.Rectangle(
+            rect = folium.Rectangle(
                 bounds=[[lat - cell_size, lon - cell_size],
                         [lat + cell_size, lon + cell_size]],
                 color=None,
@@ -221,7 +221,9 @@ def create_advanced_map(
                 fill_opacity=min(opacity, 0.8),
                 weight=0,
                 interactive=False,
-            ).add_to(risk_group)
+                class_name="risk-cell",
+            )
+            rect.add_to(risk_group)
 
         risk_group.add_to(m)
 
@@ -230,12 +232,9 @@ def create_advanced_map(
         <script>
         (function() {
             function makeRiskClickthrough() {
-                var panes = document.querySelectorAll('.leaflet-overlay-pane svg');
-                panes.forEach(function(svg) {
-                    var paths = svg.querySelectorAll('path');
-                    paths.forEach(function(p) {
-                        p.style.pointerEvents = 'none';
-                    });
+                var paths = document.querySelectorAll('.risk-cell');
+                paths.forEach(function(p) {
+                    p.style.pointerEvents = 'none';
                 });
             }
             setTimeout(makeRiskClickthrough, 500);
@@ -454,6 +453,10 @@ def create_advanced_map(
                 f"Customers Off Supply: {customers_off:,}/{customers_aff:,}<br>"
                 f"Est. Restoration: {restore_str}"
             )
+            # Build tooltip: "INC 12345 — High Voltage Fault"
+            cause = inc.get("incident_type", "")
+            tooltip_text = f"{inc_num} - {cause}" if cause else f"{inc_num}"
+
             folium.CircleMarker(
                 location=[lat, lon],
                 radius=10,
@@ -462,6 +465,7 @@ def create_advanced_map(
                 fill_color="#DC3545",
                 fill_opacity=0.8,
                 popup=folium.Popup(popup_html, max_width=300),
+                tooltip=tooltip_text,
             ).add_to(live_group)
         live_group.add_to(m)
 
