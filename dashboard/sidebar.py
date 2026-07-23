@@ -91,12 +91,42 @@ def render_sidebar(charging_sites, outages):
     # Exclude exceptional events
     exclude_exceptional = st.sidebar.checkbox("Exclude exceptional events", value=True)
 
-    # Category filter
-    selected_categories = st.sidebar.multiselect(
-        "Chargepoint Categories",
-        options=charging_sites['site_category'].unique(),
-        default=charging_sites['site_category'].unique()
-    )
+    # Category filter — colored toggle buttons
+    category_colors = {
+        'V2X Chargepoint': '#FF1493',
+        'Building-supplied Charger': '#0066CC',
+        'Other Chargepoint': '#28A745',
+    }
+
+    # Initialise all categories active on first load
+    for cat in category_colors:
+        key = f"cat_{cat}"
+        if key not in st.session_state:
+            st.session_state[key] = True
+
+    st.sidebar.markdown("**Chargepoint Categories**")
+    cols = st.sidebar.columns(3)
+    for col, (cat, color) in zip(cols, category_colors.items()):
+        key = f"cat_{cat}"
+        if col.button(cat, key=f"btn_{cat}", use_container_width=True):
+            st.session_state[key] = not st.session_state[key]
+            st.rerun()
+
+    selected_categories = [cat for cat in category_colors if st.session_state[f"cat_{cat}"]]
+
+    # Stack columns vertically and color buttons (sidebar only)
+    _btn_css = """
+    [data-testid='stSidebar'] [data-testid='stHorizontalBlock']{flex-direction:column!important;gap:0.4rem!important;}
+    [data-testid='stSidebar'] [data-testid='stHorizontalBlock'] [data-testid='stColumn']{width:100%!important;padding:0!important;}
+    """
+    for i, (cat, color) in enumerate(category_colors.items()):
+        bg = color if st.session_state[f"cat_{cat}"] else "#555555"
+        _btn_css += (
+            f'[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] '
+            f'[data-testid="stColumn"]:nth-of-type({i + 1}) button'
+            f'{{background-color: {bg} !important; color: white !important;}}'
+        )
+    st.markdown(f"<style>{_btn_css}</style>", unsafe_allow_html=True)
 
     # Statistical filtering
     st.sidebar.subheader("Statistical Filters")
