@@ -46,8 +46,8 @@ def render_live_incidents(live_incidents, show_live_incidents, live_refresh_labe
         for _, inc in live_incidents.iterrows():
             inc_num = inc.get("incident_num", "N/A")
             status = inc.get("incident_status", "Unknown")
-            customers_off = inc.get("customers_off_supply", 0)
-            customers_aff = inc.get("customers_affected", 0)
+            customers_off = int(inc.get("customers_off_supply", 0) or 0)
+            customers_aff = int(inc.get("customers_affected", 0) or 0)
             outage_time = inc.get("outage_time")
             est_restore = inc.get("estimated_restoration_time")
 

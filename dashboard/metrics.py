@@ -49,8 +49,8 @@ def render_metric_cards(filtered_outages, outages, years):
         return None
 
     # 1. Customers affected
-    curr_customers = curr['customer_affected'].sum() if not curr.empty else 0
-    prev_customers = prev['customer_affected'].sum() if not prev.empty else 0
+    curr_customers = int(curr['customer_affected'].sum()) if not curr.empty else 0
+    prev_customers = int(prev['customer_affected'].sum()) if not prev.empty else 0
     st.metric(
         "Customers Affected", f"{curr_customers:,}",
         delta=_delta_pct(curr_customers, prev_customers), delta_color="inverse",

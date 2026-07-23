@@ -84,12 +84,13 @@ def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model
     st.plotly_chart(fig_prob, width='stretch')
 
     # Top features (cached)
-    st.markdown("**Top Contributing Features:**")
+    st.markdown("**Top Contributing Features** (relative importance, sums to 1.0 across all features):")
     try:
         rf_model, xgb_model, xgb_le = _cached_models()
         model = xgb_model if risk_model_choice == "XGBoost" else rf_model
         fi = _cached_feature_importance(model, risk_model_choice)
         for _, row in fi.head(3).iterrows():
-            st.markdown(f"• **{row['feature']}** — importance: {row['importance']:.3f}")
+            pct = row['importance'] * 100
+            st.markdown(f"• **{row['feature']}** — {pct:.1f}%")
     except Exception:
         st.caption("Feature importance not available.")

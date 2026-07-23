@@ -82,7 +82,7 @@ def render_sidebar(charging_sites, outages):
     st.sidebar.header("Advanced Filters")
 
     # Year filter
-    available_years = sorted(outages['year'].unique()) if 'year' in outages.columns else [2023, 2024, 2025]
+    available_years = sorted(int(y) for y in outages['year'].dropna().unique()) if 'year' in outages.columns else [2023, 2024, 2025]
     years = st.sidebar.multiselect("Years", options=available_years, default=available_years)
 
     # Time filter
@@ -141,7 +141,7 @@ def render_sidebar(charging_sites, outages):
     st.sidebar.subheader("Risk Prediction")
     risk_model_choice = st.sidebar.selectbox(
         "Prediction model", options=["Random Forest", "XGBoost"], index=0,
-        help="Random Forest is more explainable; XGBoost may be more accurate."
+        help="Random Forest: simpler model, easier to interpret feature contributions. XGBoost: more complex, often higher accuracy but harder to explain individual predictions."
     )
 
     show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap", value=True)

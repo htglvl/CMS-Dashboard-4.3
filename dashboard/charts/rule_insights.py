@@ -8,7 +8,7 @@ def render_rule_insights(site_outages, site_info):
     """Render risk level, recommendations, and key metrics."""
     ai_analysis = AIRecommendationEngine.analyze_site_performance(site_outages, site_info)
 
-    st.markdown("Rule-based Insights")
+    st.markdown("## Rule-based Insights")
 
     risk_level = ai_analysis['risk_level']
     st.markdown(f"**Risk Level:** {risk_level}")
@@ -18,7 +18,7 @@ def render_rule_insights(site_outages, site_info):
         st.markdown(f"• {rec}")
 
     if ai_analysis['key_insights']:
-        st.markdown("Key Metrics:")
+        st.markdown("## Key Metrics")
         insights = ai_analysis['key_insights']
         for key, value in insights.items():
             if isinstance(value, (int, float)):

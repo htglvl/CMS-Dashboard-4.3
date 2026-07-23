@@ -439,8 +439,8 @@ def create_advanced_map(
 
             inc_num = inc.get("incident_num", "N/A")
             status = inc.get("incident_status", "Unknown")
-            customers_off = inc.get("customers_off_supply", 0)
-            customers_aff = inc.get("customers_affected", 0)
+            customers_off = int(inc.get("customers_off_supply", 0) or 0)
+            customers_aff = int(inc.get("customers_affected", 0) or 0)
             est_restore = inc.get("estimated_restoration_time")
             restore_str = (
                 est_restore.strftime("%d %b %Y, %H:%M")
