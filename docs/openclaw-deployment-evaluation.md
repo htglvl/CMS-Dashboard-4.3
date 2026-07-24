@@ -28,35 +28,27 @@ The key architectural idea is that **the LLM never touches the data directly**. 
 
 The CMS Dashboard already had Python data scripts, CSV files, and ML models. OpenClaw was added as a **conversational layer on top** — it does not replace the existing Streamlit dashboard, it supplements it.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        High level architecture                  │
-│                                                                 │
-│  ┌──────────────┐              ┌──────────────────────────────┐ │
-│  │   WebChat    │              │      Streamlit Dashboard     │ │
-│  │  (OpenClaw)  │              │         port 8501            │ │
-│  │  port 8501   │              │                              │ │
-│  └──────┬───────┘              └──────────────┬───────────────┘ │
-│         │                                     │                 │
-│  ┌──────▼───────┐              ┌──────────────▼───────────────┐ │
-│  │  OpenClaw    │              │      nginx reverse proxy     │ │
-│  │  Gateway     │              │    (localhost:8502 -> 8501)  │ │
-│  │  (Node.js)   │              │                              │ │                                        
-│  └──────┬───────┘              └──────────────┬───────────────┘ │
-│         │                                     │                 │
-│  ┌──────▼───────┐              ┌──────────────▼───────────────┐ │
-│  │  Plugin      │              │                              │ │
-│  │  (tools)     │              │      (enhanced_app.py)       │ │
-│  │ .md files    │              │                              │ │
-│  └──────┬───────┘              └──────────────┬───────────────┘ │
-│         │                                     │                 │               
-│  ┌──────▼───────┐                      ┌──────▼───────┐         │
-│  │  Data/Models │                      │  Python CLI  │         │
-│  │  CSV, GeoJSON│◄─────────────────────│  website's   │         │
-│  │  XGB, RF     │    Both interfaces   │  python code │         │
-│  └──────────────┘    share the data    └──────────────┘         │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    PB[User Browser] -->|"cms.(...).workers.dev"| CF[Cloudflare Worker\n302 redirect]
+    CF -->|"(random).trycloudflare.com"| CT[cloudflared tunnel\npoints to :8501]
+    CT --> NG[nginx reverse proxy\n listening at port 8501]
+
+    subgraph "Dashboard"
+        NG -->|"/ or /home/ to port 8502"| ST[Streamlit Dashboard\nenhanced_app.py\n running on port 8502]
+        ST --> CLI[Python CLI tools\nwebsite's code]
+    end
+
+    subgraph "OpenClaw"
+        NG -->|"/oclaw/* to port 8503"| PRX[openclaw_proxy.py\n listening on port 8503\n inject auth + Strip CSP +\n forwards  WS]
+        PRX -->|forwards to :18789| GW[OpenClaw Gateway\nport 18789]
+        GW --> PLUG[Plugin tools\nTypeScript\n.md skill files]
+    end
+
+    subgraph "Shared"
+        CLI --> DATA[Shared Data/Models\nCSV, GeoJSON\nXGBoost, Random Forest]
+        PLUG --> DATA
+    end
 ```
 
 ### 1.3 Integration Components
@@ -65,7 +57,7 @@ The CMS Dashboard already had Python data scripts, CSV files, and ML models. Ope
 |-------|-----------|---------|-----------|------|
 | **User Interface** | WebChat | `~/.openclaw/openclaw.json` | OpenClaw | Natural language chat — accessible on port 8501 via nginx |
 | **User Interface** | Streamlit Dashboard | `enhanced_app.py` | Python/Streamlit | Visual maps, charts, filters — accessible on port 8501 via nginx |
-| **Routing** | nginx reverse proxy | `nginx/conf/nginx.conf` | nginx | Single entry point on port 8501; routes `/` → Streamlit (8502), `/oclaw` → OpenClaw Gateway (18789) |
+| **Routing** | nginx reverse proxy | `nginx/conf/nginx.conf` | nginx | Single entry point on port 8501; routes `/` → Streamlit (8502), `/oclaw` → OpenClaw Proxy (8503) → Gateway (18789) |
 | **Agent** | OpenClaw Gateway | `openclaw serve` (Node.js) | Node.js | Routes chat messages to tools, manages LLM context, orchestrates tool calls |
 | **Tools** | Plugin | `openclaw-plugin/`, `.md` skill files | TypeScript/Markdown | Registers tools with the gateway, maps tool names to Python scripts; skills guide the agent's workflow |
 | **Backend** | Python CLI | `tools/*.py`, website's Python code | Python 3.12 | CLI wrappers — `argparse` input, JSON output to stdout; reuses the existing dashboard codebase |
@@ -82,7 +74,7 @@ The CMS Dashboard already had Python data scripts, CSV files, and ML models. Ope
 6. Python script hits Nominatim API, returns `{"lat": 54.0466, "lon": -2.8007, "display_name": "Lancaster, ..."}`
 7. Gateway feeds the JSON result back to the LLM
 8. LLM decides to call `query_risk` with `{"lat": 54.0466, "lon": -2.8007}`
-9. Repeat until the LLM has enough data to answer
+9. LLM evaluates whether it needs additional tool calls (e.g. `query_outages` for history) — if so, it calls another tool; this cycle continues until it has enough data to answer
 10. LLM synthesises a natural language response from all tool outputs
 
 ### 1.5 Tool Registration Pattern
@@ -237,7 +229,6 @@ The **"OpenClaw AI Chat"** button is at the top of the sidebar (purple gradient)
 **Clicking on the map:**
 - **Click a chargepoint marker** — a pink 2-mile buffer circle appears around the site, and a detailed analysis panel loads below the map with 5 tabs (see below).
 - **Click empty space** — a pin drops at that location with a 2-mile buffer, showing outages and risk data for the area.
-- **Click a flexibility tender polygon** — a detail panel appears showing substation data (postcodes, voltage, need type, delivery dates, pricing). Use ◀/▶ buttons to paginate through tenders for that substation.
 - **Click a live incident marker** — shows incident details (number, status, customers off supply, restoration time).
 
 **Layer control** (top-right corner of the map):
@@ -246,7 +237,7 @@ Toggle layers on/off using the built-in Folium layer control:
 | Layer | What it shows |
 |-------|--------------|
 | Risk Heatmap | Coloured grid cells (green → yellow → red) based on ML risk predictions |
-| Flexibility Tender Polygons | Substation areas with flexibility contracts (blue = Variable Availability, purple = + Operational Utilisation) |
+| Flexibility Tender Polygons | Substation areas with flexibility contracts |
 | Buffer Zones | 2-mile dashed circles around each chargepoint |
 | Chargepoints | Circle markers sized by outage count, colour-coded by category (pink = V2X, blue = Building-supplied, green = Other) |
 | Outage Heatmap | Heat density of outages weighted by duration |
@@ -295,7 +286,7 @@ The **"Retrain Risk Models"** button is in the sidebar under Risk Prediction. Cl
 3. Save updated prediction CSVs to `models/`
 4. Reload predictions and refresh the dashboard
 
-A spinner shows "Retraining models... this may take a minute". On success, a toast confirms "Risk models retrained successfully." On failure, an error message appears in the sidebar.
+A spinner shows "Retraining models... this may take a minute or two". On success, a toast confirms "Risk models retrained successfully." On failure, an error message appears in the sidebar.
 
 **Automatic retraining** also happens when new outage data is fetched from the ENW API — if new records are found, models are retrained automatically.
 
@@ -310,7 +301,7 @@ The right panel shows:
 
 #### 2.4.7 Live Incidents
 
-Below the sidebar, a live status indicator shows:
+Above the sidebar, a live status indicator shows:
 - Green dot + "No active incidents" when the grid is clear
 - Red pulsing dot + count when incidents are active
 
@@ -340,9 +331,6 @@ The `.env` file in the project root controls API keys and service settings:
 | `OPENAI_API_KEY` | One of these three | LLM provider for OpenClaw agent |
 | `ANTHROPIC_API_KEY` | One of these three | LLM provider for OpenClaw agent |
 | `ENW_API_KEY` | Yes | Electricity North West live incidents API |
-| `SENDGRID_API_KEY` | No | Email notifications (planned feature) |
-
-**Never commit `.env` to git** — it is in `.gitignore`.
 
 ### 2.7 Data Refresh
 
@@ -363,9 +351,11 @@ Cache staleness is managed automatically: `advanced_charts/cache_utils.py` check
 CMS Dashboard 4.3/
 ├── enhanced_app.py          # Streamlit main app
 ├── openclaw_proxy.py        # Auth token proxy for OpenClaw
-├── proxy_server.py          # General proxy server
+├── capture_tunnel_url.py    # Cloudflare tunnel manager (starts cloudflared, captures URL, pushes to Workers KV)
 ├── run_dashboard.bat        # Start all services
 ├── setup.bat                # First-time setup
+├── cloudflared.exe          # Cloudflare tunnel binary (not in git)
+├── tunnel_url.txt           # Current tunnel URL (auto-generated)
 ├── .env                     # API keys (not in git)
 │
 ├── openclaw-plugin/         # OpenClaw plugin
@@ -402,6 +392,10 @@ CMS Dashboard 4.3/
 │   ├── risk_model.py
 │   ├── recommendation_engine.py
 │   └── cache_utils.py
+│
+├── cloudflare/              # Cloudflare tunnel & Worker config
+│   ├── worker.js            # Stable redirect Worker (reads tunnel URL from KV)
+│   └── wrangler.toml        # Worker deployment config
 │
 ├── dashboard/               # Streamlit UI components
 ├── tests/                   # pytest test files
@@ -463,7 +457,7 @@ CMS Dashboard 4.3/
 
 ### 3.6 Historic Outage Analysis
 
-**What it does:** User asks "Show me recent power outages in Cumberland" — the agent queries 11,316 outage records (1997–2026) filtered by district or proximity.
+**What it does:** User asks "Show me recent power outages in Cumberland" — the agent queries 11,316 outage records (1997–2026) filtered by district or proximity. It can also filter by time period, start or end date, cause, and duration — e.g. "Show me outages in Lancaster from 2024 to the end of 2025 lasting more than 12 hours."
 
 **Tools used:** `query_outages`
 
@@ -493,9 +487,10 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 
 #### R1: LLM Hallucination in data generation Despite Tool Grounding
 
-**Risk:** Even though OpenClaw forces the agent through structured JSON tools, the LLM can still halluculate when **synthesising** tool results into a natural language answer. It might misinterpret a confidence score, overstate certainty, or combine data points incorrectly. The user's query can also make it to hallucinate if the query is so out of scope.
+**Risk:** Even though OpenClaw forces the agent through structured JSON tools, the LLM can still halluculate when **synthesising** tool results into a natural language answer. It might misinterpret a confidence score, overstate certainty, or combine data points incorrectly. The user's query can also make it hallucinate if the query is so out of scope.
 
 **Likelihood:** Medium
+
 **Impact:** High — users may act on incorrect summaries
 
 **Mitigations in place:**
@@ -511,6 +506,7 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 **Risk:** The LLM can call the wrong tool, pass incorrect parameters, or misinterpret tool output — leading to hallucinated answers presented as fact. If the agent is given write/delete capabilities (e.g. modifying data files, triggering retraining), a hallucinated tool call could cause real damage to the system.
 
 **Likelihood:** Medium — depends on model quality and prompt clarity
+
 **Impact:** High — users act on incorrect data; automated actions could corrupt data or trigger unintended side effects
 
 **Mitigations in place:**
@@ -528,6 +524,7 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 **Risk:** The LLM can get stuck in a thinking loop — calling the same tool repeatedly, chaining unnecessary tool calls, or retrying on errors without progressing toward an answer. Each tool call costs API tokens, and a single runaway query can burn through an entire token budget in minutes. Additionally, background daemons (e.g. `check_new_incidents`, auto-refresh timers, cron jobs) run periodically and make LLM calls on schedule, consuming tokens even when no user is actively interacting.
 
 **Likelihood:** High — LLM loops are a known failure mode; daemon calls are constant
+
 **Impact:** High — unexpected API costs, rate limiting from the LLM provider, degraded service
 
 **Mitigations in place:**
@@ -543,6 +540,7 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 **Risk:** OpenClaw tools depend on external APIs (Nominatim for geocoding, ENW for live incidents). If these APIs go down, rate-limit, or change their response format, tools fail silently or return errors that the agent may not handle gracefully.
 
 **Likelihood:** High (Nominatim rate limiting is frequent)
+
 **Impact:** Medium — degraded functionality, not total failure
 
 **Mitigations in place:**
@@ -553,6 +551,7 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 **Risk:** The OpenClaw gateway loads `openclaw-plugin/dist/index.js` — the compiled TypeScript output. If `npm run build` fails (TypeScript errors, missing dependencies), the gateway starts with no tools registered, and the agent has nothing to call.
 
 **Likelihood:** Low (build happens on startup)
+
 **Impact:** Medium — agent don't know how to use and find the tools
 
 **Mitigations in place:**
@@ -568,11 +567,11 @@ This section focuses on OpenClaw as a platform — the risks and limitations inh
 | # | Limitation | Detail |
 |---|-----------|--------|
 | L1 | **No streaming responses** | OpenClaw when enable thinking mode (if llm supported), add up with tool call can feel slow because the user sees nothing until the LLM finishes. |
-| L2 | **Limited-user design** | The software/hardware is designed and limit for few user at a time. Concurrent sessions share the same data execution context, which can cause timeouts or race conditions. |
+| L2 | **Limited-user design** | The software/hardware is designed for and limited to a few users at a time. Concurrent sessions share the same data execution context, which can cause timeouts or race conditions. |
 | L3 | **No tool result caching at gateway level** | Each tool call executes the Python script from scratch. The recommendation engine caches internally, but the gateway doesn't cache repeated queries. |
 | L4 | **120-second default timeout** | `execSync` has a hard timeout. Complex queries (recommendations, Borderlands cross-ref) can exceed this, causing silent failures. |
 | L5 | **No tool prioritisation or routing** | The LLM decides which tools to call. There's no mechanism to force certain tools or prevent others based on user role or context. |
-| L6 | **API dependency** | OpenClaw need LLM to work which relies on external API. The agent is useless if the API is wrong, out of date or the LLM is not capable of executing tools, query. |
+| L6 | **API dependency** | OpenClaw needs an LLM to work which relies on external API. The agent is useless if the API is wrong, out of date or the LLM is not capable of executing tools, query. |
 | L7 | **Plugin reload requires restart** | Adding or modifying a tool requires rebuilding the plugin and restarting the gateway. There's no hot-reload. |
 | L8 | **No built-in analytics** | OpenClaw doesn't track which tools are called most, which fail most, or how long responses take. All analytics must be built externally. |
 
