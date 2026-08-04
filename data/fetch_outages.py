@@ -215,14 +215,16 @@ def prepare_for_dashboard(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
 
     # Duration in hours
+    # Prefer incident_duration (ENWL's official field) over timestamp difference,
+    # as timestamps may contain data entry errors (e.g., restoration date months later)
+    if "incident_duration" in df.columns:
+        df["duration-hours"] = df["incident_duration"] / 60.0
     if "incident_date_time" in df.columns and "restoration_date_time" in df.columns:
         computed = (df["restoration_date_time"] - df["incident_date_time"]).dt.total_seconds() / 3600.0
-        if "incident_duration" in df.columns:
-            df["duration-hours"] = computed.fillna(df["incident_duration"] / 60.0)
+        if "duration-hours" in df.columns:
+            df["duration-hours"] = df["duration-hours"].fillna(computed)
         else:
             df["duration-hours"] = computed
-    elif "incident_duration" in df.columns:
-        df["duration-hours"] = df["incident_duration"] / 60.0
 
     # Temporal fields
     if "incident_date_time" in df.columns:

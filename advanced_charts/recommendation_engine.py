@@ -484,15 +484,15 @@ class RecommendationEngine:
             else:
                 nearby_count, nearby_hours = 0, 0
 
-            # V2X bonus
-            v2x_bonus = 0.1 if cat == "V2X Chargepoint" else 0.0
+            # V2X de-bonus: penalise sites that already have V2X (needs less investment)
+            v2x_penalty = -1.0 if cat == "V2X Chargepoint" else 0.0
 
             # Composite score
             composite = (
                 risk_score * 0.4
                 + min(nearby_count / 50, 1.0) * 0.3
                 + min(nearby_hours / 1000, 1.0) * 0.2
-                + v2x_bonus * 0.1
+                + v2x_penalty * 0.1
             )
 
             rows.append({

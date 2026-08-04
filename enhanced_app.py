@@ -273,7 +273,7 @@ def main():
     col1, col2 = st.columns([4, 1])
 
     with col1:
-        st.subheader("Interactive Spatial Analysis")
+        st.subheader("Interactive Spatial Analysis", anchor=False)
 
         # Create map with pin (if previously clicked)
         interactive_map = create_advanced_map(

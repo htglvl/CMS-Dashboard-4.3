@@ -58,6 +58,9 @@ FEATURES_CACHE = Path(__file__).parent.parent / "data" / "grid_features_cache.pk
 # Grid cell size in degrees (~0.02° ≈ 2 km at UK latitudes)
 CELL_SIZE = 0.02
 
+# Duration outlier cap (hours) — prevents extreme outliers from distorting avg/std
+DURATION_CAP_HOURS = 168.0  # 1 week
+
 # Risk class labels
 RISK_LABELS = ["Low", "Medium", "High"]
 
@@ -88,22 +91,19 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
                         grid_cells=None) -> pd.DataFrame:
     """Compute per-grid-cell features from the outage catalogue.
 
+    Features include temporal, severity, spatial, and infrastructure metrics.
+    Outlier durations are capped and skewed features are log-transformed.
+
     Parameters
     ----------
     outages : pd.DataFrame
-        Cleaned outage data (must have ``latitude``, ``longitude``,
-        ``duration-hours``, ``total_customer_minutes_lost``,
-        ``incident_date_time``, ``direct_cause_category``).
+        Cleaned outage data.
     cell_size : float
         Grid cell size in degrees.
-    start_date : str or pd.Timestamp or None
-        If set, only include outages on or after this date.
-    end_date : str or pd.Timestamp or None
-        If set, only include outages before this date.
+    start_date, end_date : str or None
+        Date window filters.
     grid_cells : pd.DataFrame or None
-        If provided, must have ``lat`` and ``lon`` columns defining the
-        fixed grid.  Cells with no outages in the window get zeroed
-        features.  When *None* the grid is derived from the data.
+        Fixed grid definition (lat, lon columns).
 
     Returns
     -------
@@ -153,6 +153,9 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
         df["total_customer_minutes_lost"], errors="coerce"
     ).fillna(0)
 
+    # Cap outlier durations (prevents extreme values from distorting avg/std)
+    df["duration_capped"] = df["duration-hours"].clip(upper=DURATION_CAP_HOURS)
+
     # Exceptional event flag
     if "is_exceptional_event" in df.columns:
         df["is_exceptional"] = df["is_exceptional_event"].fillna(False).astype(bool)
@@ -163,10 +166,11 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
     grouped = df.groupby(["cell_lat", "cell_lon"])
 
     features = grouped.agg(
-        outage_count=("duration-hours", "size"),
-        avg_duration=("duration-hours", "mean"),
-        std_duration=("duration-hours", "std"),
+        outage_count=("duration_capped", "size"),
+        avg_duration=("duration_capped", "mean"),
+        std_duration=("duration_capped", "std"),
         total_customer_hours=("total_customer_minutes_lost", lambda x: x.sum() / 60),
+        max_duration=("duration_capped", "max"),
         winter_ratio=("is_winter", "mean"),
         night_ratio=("is_night", "mean"),
         exceptional_ratio=("is_exceptional", "mean"),
@@ -176,26 +180,48 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
     features.rename(columns={"cell_lat": "lat", "cell_lon": "lon"}, inplace=True)
     features["std_duration"] = features["std_duration"].fillna(0)
 
-    # Nearest-substation distance (approximate: use mean lat/lon per cell)
+    # Log-transform skewed features (add 1 to avoid log(0))
+    features["log_total_customer_hours"] = np.log1p(features["total_customer_hours"])
+    features["log_avg_duration"] = np.log1p(features["avg_duration"])
+
+    # Nearest-substation distance
+    features["nearest_substation_km"] = 0.0
     if "primary_substation" in df.columns:
         substation_locs = (
             df.dropna(subset=["primary_substation"])
             .groupby("primary_substation")[["latitude", "longitude"]]
             .mean()
-            .values
         )
         if len(substation_locs) > 0:
+            sub_coords = substation_locs.values
             distances = []
             for _, row in features.iterrows():
-                dists = haversine_km(row["lat"], row["lon"], substation_locs[:, 0], substation_locs[:, 1])
-                distances.append(dists.min())
+                dists = haversine_km(row["lat"], row["lon"], sub_coords[:, 0], sub_coords[:, 1])
+                distances.append(float(dists.min()))
             features["nearest_substation_km"] = distances
-        else:
-            features["nearest_substation_km"] = 0.0
-    else:
-        features["nearest_substation_km"] = 0.0
 
-    # If a fixed grid was provided, ensure all cells are present (zeroed if no outages)
+    # Spatial features: count outages in neighboring cells (3x3 grid)
+    # Build a lookup of (lat, lon) -> outage_count
+    cell_counts = features.set_index(["lat", "lon"])["outage_count"].to_dict()
+    neighbor_counts = []
+    neighbor_avg_durations = []
+    for _, row in features.iterrows():
+        lat, lon = row["lat"], row["lon"]
+        total_neighbors = 0.0
+        total_dur_neighbors = 0.0
+        count_neighbors = 0
+        for dlat in [-cell_size, 0, cell_size]:
+            for dlon in [-cell_size, 0, cell_size]:
+                if dlat == 0 and dlon == 0:
+                    continue  # skip self
+                key = (round(lat + dlat, 6), round(lon + dlon, 6))
+                if key in cell_counts:
+                    total_neighbors += cell_counts[key]
+                    count_neighbors += 1
+        neighbor_counts.append(total_neighbors)
+    features["neighbor_outage_count"] = neighbor_counts
+
+    # If a fixed grid was provided, ensure all cells are present
     if grid_cells is not None:
         features = grid_cells[["lat", "lon"]].merge(features, on=["lat", "lon"], how="left")
         for col in FEATURE_COLS:
@@ -244,6 +270,9 @@ def invalidate_features_cache():
 def assign_risk_labels(features: pd.DataFrame) -> pd.DataFrame:
     """Assign risk labels using quantile-based binning on outage_count.
 
+    Uses 33rd/67th percentile thresholds of non-zero outage counts
+    for more balanced class distribution than median split.
+
     Parameters
     ----------
     features : pd.DataFrame
@@ -259,10 +288,12 @@ def assign_risk_labels(features: pd.DataFrame) -> pd.DataFrame:
     if len(non_zero) == 0:
         df["risk_level"] = "Low"
     else:
-        median_nz = non_zero.median()
+        # Use 33rd/67th percentiles for more balanced classes
+        q33 = non_zero.quantile(0.33)
+        q67 = non_zero.quantile(0.67)
         df["risk_level"] = "Low"
         df.loc[df["outage_count"] > 0, "risk_level"] = "Medium"
-        df.loc[df["outage_count"] > median_nz, "risk_level"] = "High"
+        df.loc[df["outage_count"] > q67, "risk_level"] = "High"
     df["risk_level"] = pd.Categorical(df["risk_level"], categories=RISK_LABELS, ordered=True)
     return df
 
@@ -355,16 +386,15 @@ def build_training_samples(outages: pd.DataFrame,
         merged = features.merge(label_counts, on=["lat", "lon"], how="left")
         merged["future_outage_count"] = merged["future_outage_count"].fillna(0)
 
-        # Assign risk labels from quantile binning of future outage count
-        # Label: 0 outages = Low, above median of non-zero = High, else Medium
+        # Assign risk labels using 33rd/67th percentile thresholds
         non_zero = merged.loc[merged["future_outage_count"] > 0, "future_outage_count"]
         if len(non_zero) == 0:
             merged["risk_level"] = "Low"
         else:
-            median_nz = non_zero.median()
+            q67 = non_zero.quantile(0.67)
             merged["risk_level"] = "Low"
             merged.loc[merged["future_outage_count"] > 0, "risk_level"] = "Medium"
-            merged.loc[merged["future_outage_count"] > median_nz, "risk_level"] = "High"
+            merged.loc[merged["future_outage_count"] > q67, "risk_level"] = "High"
         merged["risk_level"] = pd.Categorical(merged["risk_level"], categories=RISK_LABELS, ordered=True)
 
         merged["cutoff_date"] = cutoff
@@ -388,11 +418,15 @@ FEATURE_COLS = [
     "avg_duration",
     "std_duration",
     "total_customer_hours",
+    "max_duration",
+    "log_avg_duration",
+    "log_total_customer_hours",
     "winter_ratio",
     "night_ratio",
     "exceptional_ratio",
     "cause_diversity",
     "nearest_substation_km",
+    "neighbor_outage_count",
 ]
 
 
@@ -421,25 +455,36 @@ def train_random_forest(X_train, y_train, random_state: int = 42):
 
 
 def train_xgboost(X_train, y_train, random_state: int = 42):
-    """Train an XGBoost classifier."""
+    """Train an XGBoost classifier with class weight balancing (deep)."""
     from xgboost import XGBClassifier
     from sklearn.preprocessing import LabelEncoder
+    from sklearn.utils.class_weight import compute_class_weight
 
     le = LabelEncoder()
     y_encoded = le.fit_transform(y_train)
 
+    # Compute class weights to handle imbalance
+    classes = np.unique(y_encoded)
+    class_weights = compute_class_weight("balanced", classes=classes, y=y_encoded)
+    weight_map = dict(zip(classes, class_weights))
+    sample_weights = np.array([weight_map[y] for y in y_encoded])
+
     model = XGBClassifier(
-        n_estimators=200,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        n_estimators=500,
+        max_depth=10,
+        learning_rate=0.03,
+        subsample=0.7,
+        colsample_bytree=0.7,
+        min_child_weight=1,
+        gamma=0.2,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
         random_state=random_state,
         use_label_encoder=False,
         eval_metric="mlogloss",
         n_jobs=-1,
     )
-    model.fit(X_train, y_encoded)
+    model.fit(X_train, y_encoded, sample_weight=sample_weights)
     return model, le
 
 
@@ -449,8 +494,8 @@ def train_xgboost(X_train, y_train, random_state: int = 42):
 
 
 def evaluate_model(model, X_test, y_test, label_encoder=None, model_name: str = "Model"):
-    """Print evaluation metrics."""
-    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+    """Print evaluation metrics and return them."""
+    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score, precision_score, recall_score
 
     if label_encoder is not None:
         y_pred = label_encoder.inverse_transform(model.predict(X_test))
@@ -458,13 +503,24 @@ def evaluate_model(model, X_test, y_test, label_encoder=None, model_name: str = 
         y_pred = model.predict(X_test)
 
     acc = accuracy_score(y_test, y_pred)
-    log.info("%s accuracy: %.3f", model_name, acc)
+    f1_macro = f1_score(y_test, y_pred, labels=RISK_LABELS, average="macro", zero_division=0)
+    precision_macro = precision_score(y_test, y_pred, labels=RISK_LABELS, average="macro", zero_division=0)
+    recall_macro = recall_score(y_test, y_pred, labels=RISK_LABELS, average="macro", zero_division=0)
+
+    log.info("%s accuracy: %.3f, F1(macro): %.3f, precision(macro): %.3f, recall(macro): %.3f",
+             model_name, acc, f1_macro, precision_macro, recall_macro)
     log.info("\n%s", classification_report(y_test, y_pred, labels=RISK_LABELS, target_names=RISK_LABELS, zero_division=0))
 
     cm = confusion_matrix(y_test, y_pred, labels=RISK_LABELS)
     log.info("Confusion matrix:\n%s", cm)
 
-    return {"accuracy": acc, "y_pred": y_pred}
+    return {
+        "accuracy": acc,
+        "f1_macro": f1_macro,
+        "precision_macro": precision_macro,
+        "recall_macro": recall_macro,
+        "y_pred": y_pred,
+    }
 
 
 def get_feature_importance(model, model_name: str = "Model") -> pd.DataFrame:
@@ -603,18 +659,50 @@ def _train_and_save():
         # RF
         rf = train_random_forest(X_train, y_train)
         rf_result = evaluate_model(rf, X_val, y_val, model_name=f"RF Fold {k}")
-        rf_metrics.append(rf_result["accuracy"])
+        rf_metrics.append({
+            "fold": k,
+            "accuracy": rf_result["accuracy"],
+            "f1_macro": rf_result["f1_macro"],
+            "precision_macro": rf_result["precision_macro"],
+            "recall_macro": rf_result["recall_macro"],
+        })
 
         # XGBoost
         xgb, xgb_le = train_xgboost(X_train, y_train)
         xgb_result = evaluate_model(xgb, X_val, y_val, xgb_le, f"XGB Fold {k}")
-        xgb_metrics.append(xgb_result["accuracy"])
+        xgb_metrics.append({
+            "fold": k,
+            "accuracy": xgb_result["accuracy"],
+            "f1_macro": xgb_result["f1_macro"],
+            "precision_macro": xgb_result["precision_macro"],
+            "recall_macro": xgb_result["recall_macro"],
+        })
 
     # Log average metrics
     if rf_metrics:
-        log.info("Walk-forward RF accuracy: %.3f ± %.3f", np.mean(rf_metrics), np.std(rf_metrics))
+        rf_acc = [m["accuracy"] for m in rf_metrics]
+        rf_f1 = [m["f1_macro"] for m in rf_metrics]
+        log.info("Walk-forward RF accuracy: %.3f ± %.3f, F1: %.3f ± %.3f",
+                 np.mean(rf_acc), np.std(rf_acc), np.mean(rf_f1), np.std(rf_f1))
     if xgb_metrics:
-        log.info("Walk-forward XGB accuracy: %.3f ± %.3f", np.mean(xgb_metrics), np.std(xgb_metrics))
+        xgb_acc = [m["accuracy"] for m in xgb_metrics]
+        xgb_f1 = [m["f1_macro"] for m in xgb_metrics]
+        log.info("Walk-forward XGB accuracy: %.3f ± %.3f, F1: %.3f ± %.3f",
+                 np.mean(xgb_acc), np.std(xgb_acc), np.mean(xgb_f1), np.std(xgb_f1))
+
+    # Persist metrics to JSON
+    import json
+    metrics_path = MODELS_DIR / "accuracy_metrics.json"
+    metrics_data = {
+        "random_forest": rf_metrics,
+        "xgboost": xgb_metrics,
+        "rf_mean_accuracy": float(np.mean([m["accuracy"] for m in rf_metrics])) if rf_metrics else None,
+        "rf_mean_f1": float(np.mean([m["f1_macro"] for m in rf_metrics])) if rf_metrics else None,
+        "xgb_mean_accuracy": float(np.mean([m["accuracy"] for m in xgb_metrics])) if xgb_metrics else None,
+        "xgb_mean_f1": float(np.mean([m["f1_macro"] for m in xgb_metrics])) if xgb_metrics else None,
+    }
+    metrics_path.write_text(json.dumps(metrics_data, indent=2))
+    log.info("Metrics saved to %s", metrics_path)
 
     # Train final production models on ALL data
     log.info("Training final production models on all %d samples...", len(samples))
