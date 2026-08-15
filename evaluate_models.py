@@ -110,8 +110,7 @@ def make_xgb_original(X_train, y_train):
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
+                eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_train, y_encoded)
@@ -137,8 +136,7 @@ def make_xgb_improved(X_train, y_train):
         reg_alpha=0.1,
         reg_lambda=1.0,
         random_state=42,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
+                eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_train, y_encoded, sample_weight=sample_weights)
@@ -164,8 +162,7 @@ def make_xgb_deep(X_train, y_train):
         reg_alpha=0.1,
         reg_lambda=1.0,
         random_state=42,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
+                eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_train, y_encoded, sample_weight=sample_weights)
@@ -205,8 +202,7 @@ def make_xgb_smote(X_train, y_train):
         colsample_bytree=0.8,
         min_child_weight=1,
         random_state=42,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
+                eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_res, y_encoded)
@@ -247,8 +243,7 @@ def make_xgb_smote_deep(X_train, y_train):
         min_child_weight=1,
         gamma=0.1,
         random_state=42,
-        use_label_encoder=False,
-        eval_metric="mlogloss",
+                eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_res, y_encoded)

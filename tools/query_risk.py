@@ -46,6 +46,10 @@ def load_predictions():
 
 
 def assign_districts(predictions, outages):
+    # Use cached district assignments if available (pre-computed by precompute_districts.py)
+    if "district_name" in predictions.columns:
+        return predictions
+    # Fallback: compute on-the-fly (slow)
     if outages.empty or "district_name" not in outages.columns:
         predictions["district_name"] = "Unknown"
         return predictions
@@ -75,8 +79,13 @@ def main():
 
     try:
         predictions = load_predictions()
-        outages = pd.read_csv(OUTAGES_FILE, low_memory=False) if OUTAGES_FILE.exists() else pd.DataFrame()
-        predictions = assign_districts(predictions, outages)
+
+        # Only load outages and assign districts if querying by district
+        if args.district is not None:
+            outages = pd.read_csv(OUTAGES_FILE, low_memory=False) if OUTAGES_FILE.exists() else pd.DataFrame()
+            predictions = assign_districts(predictions, outages)
+        elif "district_name" not in predictions.columns:
+            predictions["district_name"] = "Unknown"
 
         # Merge both models into per-cell averages
         unique_cells = predictions.groupby(["lat", "lon"]).agg(

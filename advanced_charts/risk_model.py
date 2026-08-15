@@ -480,7 +480,6 @@ def train_xgboost(X_train, y_train, random_state: int = 42):
         reg_alpha=0.1,
         reg_lambda=1.0,
         random_state=random_state,
-        use_label_encoder=False,
         eval_metric="mlogloss",
         n_jobs=-1,
     )
