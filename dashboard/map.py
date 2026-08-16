@@ -1,8 +1,51 @@
 """Interactive map creation for the dashboard."""
 
+import hashlib
 import numpy as np
 import pandas as pd
 import folium
+
+# Module-level cache for heatmap data
+_heatmap_cache_key = None
+_heatmap_cache_data = None
+
+
+def _build_heatmap_data(filtered_outages):
+    """Build heatmap data from filtered outages, with caching.
+
+    Returns a list of [lat, lng, weight] triples.
+    Cached — only recomputes when the filtered data changes.
+    """
+    global _heatmap_cache_key, _heatmap_cache_data
+
+    if filtered_outages.empty:
+        return []
+
+    try:
+        _key = hashlib.md5(
+            pd.util.hash_pandas_object(filtered_outages).values.tobytes()
+        ).hexdigest()
+    except Exception:
+        _key = f"{len(filtered_outages)}_{filtered_outages['latitude'].sum():.6f}"
+
+    if _key == _heatmap_cache_key and _heatmap_cache_data is not None:
+        return _heatmap_cache_data
+
+    _valid = filtered_outages['latitude'].notna() & filtered_outages['longitude'].notna()
+    _lats = filtered_outages.loc[_valid, 'latitude'].values
+    _lngs = filtered_outages.loc[_valid, 'longitude'].values
+    _durs = (
+        filtered_outages.loc[_valid, 'duration-hours'].values
+        if 'duration-hours' in filtered_outages.columns
+        else np.ones(_valid.sum())
+    )
+
+    _heat = np.column_stack([_lats, _lngs, _durs]).tolist()
+
+    _heatmap_cache_key = _key
+    _heatmap_cache_data = _heat
+
+    return _heat
 
 
 def _interpolate_risk(clicked_lat, clicked_lon, risk_predictions, max_radius_km=5.0):
@@ -188,48 +231,55 @@ def create_advanced_map(
         'Other Chargepoint': '#28A745'
     }
 
-    # Precompute all site-outage distances in one vectorised pass
+    # ── Per-site outage stats via KD-tree (no full distance matrix) ────
+    _BUFFER_KM = 3.218  # 2 miles
+
+    # Per-site arrays: count, avg duration, latest outage
+    outage_counts = np.zeros(len(charging_sites))
+    avg_durations = np.zeros(len(charging_sites))
+    latest_outages = [None] * len(charging_sites)
+
     if not filtered_outages.empty:
-        out_lat_rad = np.radians(filtered_outages['latitude'].values)
-        out_lon_rad = np.radians(filtered_outages['longitude'].values)
+        from scipy.spatial import cKDTree
+
+        valid_mask = filtered_outages['latitude'].notna() & filtered_outages['longitude'].notna()
+        out_lats = filtered_outages.loc[valid_mask, 'latitude'].values
+        out_lons = filtered_outages.loc[valid_mask, 'longitude'].values
         dur_arr = (
-            filtered_outages['duration-hours'].values
+            filtered_outages.loc[valid_mask, 'duration-hours'].values
             if 'duration-hours' in filtered_outages.columns
-            else np.zeros(len(filtered_outages))
+            else np.zeros(valid_mask.sum())
         )
 
-        # Build datetime array for latest-outage lookup
+        # Datetime array for latest-outage lookup
         if 'Incident Date-time' in filtered_outages.columns:
-            dt_arr = filtered_outages['Incident Date-time'].values
+            dt_arr = filtered_outages.loc[valid_mask, 'Incident Date-time'].values
         elif 'start_time' in filtered_outages.columns:
-            dt_arr = filtered_outages['start_time'].values
+            dt_arr = filtered_outages.loc[valid_mask, 'start_time'].values
         else:
             dt_arr = None
 
-        # Compute distance matrix: (n_sites, n_outages) via broadcasting
-        site_lat_rad = np.radians(charging_sites['latitude'].values)
-        site_lon_rad = np.radians(charging_sites['longitude'].values)
-        dlat = site_lat_rad[:, None] - out_lat_rad[None, :]
-        dlon = site_lon_rad[:, None] - out_lon_rad[None, :]
-        a = (
-            np.sin(dlat / 2) ** 2
-            + np.cos(site_lat_rad[:, None])
-            * np.cos(out_lat_rad[None, :])
-            * np.sin(dlon / 2) ** 2
-        )
-        dist_km = 6371.0 * 2.0 * np.arcsin(np.sqrt(a))
-        dist_mask = dist_km <= 3.218  # within 2-mile buffer
+        # Convert outage coords to radians for KD-tree (haversine needs radians)
+        out_pts = np.column_stack([np.radians(out_lats), np.radians(out_lons)])
+        tree = cKDTree(out_pts)
 
-        # Per-site aggregates
-        outage_counts = dist_mask.sum(axis=1).astype(float)
-        masked_dur = np.where(dist_mask, dur_arr[None, :], 0.0)
-        sum_dur = masked_dur.sum(axis=1)
-        safe_counts = np.where(outage_counts > 0, outage_counts, 1.0)
-        avg_durations = np.where(outage_counts > 0, sum_dur / safe_counts, 0.0)
+        # Convert site coords to radians
+        site_lats_rad = np.radians(charging_sites['latitude'].values)
+        site_lons_rad = np.radians(charging_sites['longitude'].values)
+
+        # Angular radius corresponding to 2 miles on Earth
+        _ANGULAR_RADIUS = _BUFFER_KM / 6371.0
+
+        for i in range(len(charging_sites)):
+            # Query tree for all outages within angular radius
+            idxs = tree.query_ball_point([site_lats_rad[i], site_lons_rad[i]], _ANGULAR_RADIUS)
+            if not idxs:
+                continue
+            outage_counts[i] = len(idxs)
+            avg_durations[i] = dur_arr[idxs].mean()
+            if dt_arr is not None:
+                latest_outages[i] = pd.Series(dt_arr[idxs]).max()
     else:
-        dist_mask = None
-        outage_counts = np.zeros(len(charging_sites))
-        avg_durations = np.zeros(len(charging_sites))
         dt_arr = None
 
     # ── Risk heatmap layer (rendered below chargepoints) ─────────────
@@ -384,11 +434,7 @@ def create_advanced_map(
         avg_duration = float(avg_durations[site_idx])
 
         # Latest outage for this site
-        if dist_mask is not None and outage_count > 0 and dt_arr is not None:
-            site_dt = dt_arr[dist_mask[site_idx]]
-            latest_outage = pd.Series(site_dt).max()
-        else:
-            latest_outage = "No recent outages"
+        latest_outage = latest_outages[site_idx] if latest_outages[site_idx] is not None else "No recent outages"
 
         popup_html = f"""
         <div style="font-family: Arial; width: 300px; padding: 10px;">
@@ -439,19 +485,15 @@ def create_advanced_map(
     if chargepoint_group is not None:
         chargepoint_group.add_to(m)
 
-    # Add outage heatmap
+    # Add outage heatmap (cached, vectorized)
     if "Outage Heatmap" in show_layers and not filtered_outages.empty:
         from folium.plugins import HeatMap
 
-        heat_data = [
-            [row['latitude'], row['longitude'], row['duration-hours']]
-            for _, row in filtered_outages.iterrows()
-            if pd.notna(row['latitude']) and pd.notna(row['longitude'])
-        ]
+        _heat = _build_heatmap_data(filtered_outages)
 
-        if heat_data:
+        if _heat:
             HeatMap(
-                heat_data,
+                _heat,
                 name='Outage Heatmap',
                 min_opacity=0.2,
                 max_zoom=18,
