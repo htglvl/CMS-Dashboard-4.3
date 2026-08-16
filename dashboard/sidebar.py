@@ -108,7 +108,7 @@ def render_sidebar(charging_sites, outages):
     cols = st.sidebar.columns(3)
     for col, (cat, color) in zip(cols, category_colors.items()):
         key = f"cat_{cat}"
-        if col.button(cat, key=f"btn_{cat}", use_container_width=True):
+        if col.button(cat, key=f"btn_{cat}", width="stretch"):
             st.session_state[key] = not st.session_state[key]
             st.rerun()
 
@@ -205,7 +205,7 @@ def render_sidebar(charging_sites, outages):
         _prefs["confidence_threshold"] = confidence_threshold
         _save_prefs(_prefs)
 
-    if st.sidebar.button("🔄 Retrain Risk Models", use_container_width=True):
+    if st.sidebar.button("🔄 Retrain Risk Models", width="stretch"):
         with st.spinner("Retraining models... this may take a minute"):
             try:
                 from advanced_charts.risk_model import _train_and_save, invalidate_features_cache

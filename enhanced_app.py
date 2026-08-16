@@ -115,8 +115,6 @@ def main():
         st.session_state.flex_selected_substation = None
     if "flex_page_index" not in st.session_state:
         st.session_state.flex_page_index = 0
-    if "last_flex_popup" not in st.session_state:
-        st.session_state.last_flex_popup = None
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
@@ -280,7 +278,7 @@ def main():
         # Render map
         map_data = st_folium(
             interactive_map,
-            use_container_width=True,
+            width="stretch",
             height=600,
             returned_objects=["last_clicked", "last_object_clicked", "last_object_clicked_popup"],
             key="main_map",
@@ -303,26 +301,35 @@ def main():
         print(f"[INFO-SECTION] session pin_lat: {st.session_state.get('pin_lat')}")
         print(f"[INFO-SECTION] session selected_site: {st.session_state.get('selected_site')}")
 
-        # ── Flexibility tender click detection ───────────────────────────
-        _is_flex_click = popup_html and 'class="flex-tender"' in str(popup_html)
-        _last_flex_popup = st.session_state.get("last_flex_popup")
-        if _is_flex_click and popup_html != _last_flex_popup:
-            import re
-            _m = re.search(r'data-substation="([^"]+)"', str(popup_html))
-            if _m:
-                _clicked_sub = _m.group(1)
-                st.session_state.last_flex_popup = popup_html
-                st.session_state.flex_selected_substation = _clicked_sub
-                st.session_state.flex_page_index = 0
-                # Set pin on clicked coordinates and mark as custom location
-                # so charts use coordinate-based outage lookup
-                if last_object:
-                    st.session_state.pin_lat = last_object['lat']
-                    st.session_state.pin_lng = last_object['lng']
-                st.session_state.selected_site = f"\U0001f4cd Location ({_clicked_sub})"
-                st.session_state.last_popup_html = popup_html
-                print(f"[FLEX-CLICK] Selected substation: {_clicked_sub}")
-                st.rerun()
+        # ── Flexibility tender click detection (point-in-polygon) ────────
+        _click_lat = None
+        _click_lng = None
+        if last_object:
+            _click_lat = last_object.get('lat')
+            _click_lng = last_object.get('lng')
+        elif last_clicked:
+            _click_lat = last_clicked.get('lat')
+            _click_lng = last_clicked.get('lng')
+
+        _flex_hit = None
+        if _click_lat is not None and _click_lng is not None and flex_gdf is not None and not flex_gdf.empty:
+            from shapely.geometry import Point
+            _pt = Point(_click_lng, _click_lat)  # shapely is (x, y) = (lng, lat)
+            for _, _row in flex_gdf.iterrows():
+                if _row.geometry.contains(_pt):
+                    _flex_hit = _row.get("substation_name")
+                    break
+            print(f"[FLEX-DEBUG] click=({_click_lat:.4f}, {_click_lng:.4f}), _flex_hit={_flex_hit}")
+
+        if _flex_hit:
+            st.session_state.flex_selected_substation = _flex_hit
+            st.session_state.flex_page_index = 0
+            st.session_state.pin_lat = _click_lat
+            st.session_state.pin_lng = _click_lng
+            st.session_state.selected_site = f"\U0001f4cd Location ({_click_lat:.4f},{_click_lng:.4f}) ({_flex_hit})"
+            st.session_state.last_popup_html = popup_html
+            print(f"[FLEX-CLICK] Selected substation: {_flex_hit}")
+            st.rerun()
 
         elif last_clicked or last_object:
             # Get coords from whichever is available
@@ -351,7 +358,6 @@ def main():
                     # Clear flexibility tender selection when clicking elsewhere
                     st.session_state.flex_selected_substation = None
                     st.session_state.flex_page_index = 0
-                    st.session_state.last_flex_popup = None
                     # Persist popup HTML across reruns; clear when clicking blank spot
                     if popup_html:
                         st.session_state.last_popup_html = popup_html
@@ -375,75 +381,10 @@ def main():
         else:
             print("[INFO-SECTION] No popup to display — section skipped")
 
-        # ── Flexibility Tender detail panel ──────────────────────────────
-        if st.session_state.flex_selected_substation and flex_grouped:
-            _sub = st.session_state.flex_selected_substation
-            _records = flex_grouped.get(_sub, [])
-            if _records:
-                _total = len(_records)
-                _idx = min(st.session_state.flex_page_index, _total - 1)
-                _rec = _records[_idx]
-
-                # Header with pagination arrows
-                _hcol1, _hcol2, _hcol3 = st.columns([1, 6, 1])
-                with _hcol1:
-                    if st.button("◀", key="flex_prev"):
-                        st.session_state.flex_page_index = (_idx - 1) % _total
-                        st.rerun()
-                with _hcol2:
-                    st.markdown(
-                        f"<h4 style='text-align:center; margin:0;'>{_sub} ({_idx + 1}/{_total})</h4>",
-                        unsafe_allow_html=True,
-                    )
-                with _hcol3:
-                    if st.button("▶", key="flex_next"):
-                        st.session_state.flex_page_index = (_idx + 1) % _total
-                        st.rerun()
-
-                # Detail fields in a fixed-height scrollable container
-                _fields = [
-                    ("Substation Name", "substation_name"),
-                    ("Post Codes", "post_codes"),
-                    ("Voltage of connection (kV)", "voltage_of_connection_kv"),
-                    ("Maximum requirement (MVA)", "maximum_requirement_mva"),
-                    ("Need Type", "need_type"),
-                    ("Delivery start date", "delivery_start_date"),
-                    ("Months Required", "months_required"),
-                    ("Times required", "times_required"),
-                    ("Days required", "days_required"),
-                    ("Maximum Utilisation Price (£/MWh)", "maximum_utilisation_price_mw"),
-                    ("Estimated availability hours", "estimated_availability_hours"),
-                    ("Estimated utilisation hours", "estimated_utilisation_hours"),
-                    ("Easting", "easting"),
-                    ("Northing", "northing"),
-                    ("Lat", "lat"),
-                    ("Long", "long"),
-                    ("Period", "period"),
-                    ("Site Number", "site_number"),
-                    ("Ceiling Price (£/Period)", "ceiling_price_period"),
-                ]
-
-                _rows = ""
-                for _label, _key in _fields:
-                    _val = _rec.get(_key)
-                    if _val is None or (isinstance(_val, float) and pd.isna(_val)):
-                        _val = "—"
-                    _rows += f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td><td style='padding:4px 8px;'>{_val}</td></tr>"
-
-                st.markdown(
-                    f"""
-                    <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:4px;">
-                        <table style="width:100%; font-size:0.9em; border-collapse:collapse;">
-                            {_rows}
-                        </table>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
         # Show selected site and charts
         if st.session_state.get("selected_site"):
             st.success(f"**{st.session_state.selected_site}**")
+            print(f"[FLEX-DEBUG] display_dynamic_charts called with flex_selected_substation={st.session_state.get('flex_selected_substation')}, flex_grouped={flex_grouped is not None}")
             display_dynamic_charts(
                 st.session_state.selected_site,
                 data["charging_sites"], data["filtered_outages"],
@@ -452,6 +393,8 @@ def main():
                 risk_model_choice=filters["risk_model_choice"],
                 clicked_lat=st.session_state.get("pin_lat"),
                 clicked_lng=st.session_state.get("pin_lng"),
+                flex_selected_substation=st.session_state.get("flex_selected_substation"),
+                flex_grouped=flex_grouped,
             )
 
     with col2:

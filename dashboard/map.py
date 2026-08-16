@@ -280,7 +280,6 @@ def create_advanced_map(
                 },
                 tooltip=folium.Tooltip(tooltip_html),
             )
-            # Store substation_name so st_folium can identify the click
             geo_json.add_child(folium.Popup(
                 f'<div class="flex-tender" data-substation="{substation}"><b>{substation}</b></div>',
                 max_width=200,
