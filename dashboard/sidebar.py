@@ -75,9 +75,9 @@ def render_sidebar(charging_sites, outages):
     dict
         Keys: years, daytime_only, exclude_exceptional, selected_categories,
         use_iqr_filter, use_significance_filter, iqr_multiplier,
-        significance_quantile, show_buffers, show_heatmap,
-        refresh_interval_min, show_live_incidents, live_refresh_min,
-        live_refresh_label, risk_model_choice, show_risk_heatmap
+        significance_quantile, show_layers, refresh_interval_min,
+        show_live_incidents, live_refresh_min, live_refresh_label,
+        risk_model_choice, confidence_threshold
     """
     st.sidebar.header("Advanced Filters")
 
@@ -128,6 +128,24 @@ def render_sidebar(charging_sites, outages):
         )
     st.markdown(f"<style>{_btn_css}</style>", unsafe_allow_html=True)
 
+    # ── Map layer visibility ────────────────────────────────────────────
+    _ALL_LAYERS = [
+        "Risk Heatmap",
+        "Flexibility Tenders",
+        "Buffer Zones",
+        "Chargepoints",
+        "Outage Heatmap",
+        "AI Recommended Sites",
+        "Live Incidents",
+    ]
+    st.sidebar.subheader("Map Layers")
+    selected_layers = st.sidebar.multiselect(
+        "Visible layers",
+        options=_ALL_LAYERS,
+        default=_ALL_LAYERS,
+        help="Choose which layers are displayed on the map."
+    )
+
     # Statistical filtering
     st.sidebar.subheader("Statistical Filters")
     use_iqr_filter = st.sidebar.checkbox("Apply IQR outlier removal", value=True)
@@ -158,14 +176,14 @@ def render_sidebar(charging_sites, outages):
     # Live incidents refresh
     live_refresh_options = {
         "15 minutes": 15, "30 minutes": 30, "1 hour": 60,
-        "2 hours": 120, "Disabled": None,
+        "2 hours": 120,
     }
     live_refresh_label = st.sidebar.selectbox(
         "Live incidents refresh", options=list(live_refresh_options.keys()), index=0,
-        help="How often to check for new live incidents. Select 'Disabled' to hide."
+        help="How often to check for new live incidents."
     )
     live_refresh_min = live_refresh_options[live_refresh_label]
-    show_live_incidents = live_refresh_min is not None
+    show_live_incidents = "Live Incidents" in selected_layers
 
     # Risk prediction
     st.sidebar.subheader("Risk Prediction")
@@ -173,8 +191,6 @@ def render_sidebar(charging_sites, outages):
         "Prediction model", options=["Random Forest", "XGBoost"], index=0,
         help="Random Forest: simpler model, easier to interpret feature contributions. XGBoost: more complex, often higher accuracy but harder to explain individual predictions."
     )
-
-    show_risk_heatmap = st.sidebar.checkbox("Show risk heatmap", value=True)
 
     _prefs = _load_prefs()
     _default_conf = _prefs.get("confidence_threshold", 0.95)
@@ -212,15 +228,12 @@ def render_sidebar(charging_sites, outages):
         "use_significance_filter": use_significance_filter,
         "iqr_multiplier": iqr_multiplier,
         "significance_quantile": significance_quantile,
-        "show_chargepoints": True,  # Always show
-        "show_buffers": True,  # Always show 2-mile buffer for visualization
-        "show_heatmap": True,  # Always show
+        "show_layers": selected_layers,
         "refresh_interval_min": refresh_interval_min,
         "show_live_incidents": show_live_incidents,
         "live_refresh_min": live_refresh_min,
         "live_refresh_label": live_refresh_label,
         "risk_model_choice": risk_model_choice,
-        "show_risk_heatmap": show_risk_heatmap,
         "confidence_threshold": confidence_threshold,
     }
 

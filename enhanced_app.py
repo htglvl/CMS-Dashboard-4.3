@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from dashboard.app_logic import discover_datasets, prepare_app_data, load_data, load_flexibility_tenders
+from dashboard.app_logic import prepare_app_data, load_data, load_flexibility_tenders
 from dashboard.sidebar import render_sidebar, setup_autorefresh, maybe_fetch_outage_data
 from dashboard.map import create_advanced_map
 from dashboard.chart_display import display_dynamic_charts
@@ -148,26 +148,13 @@ def main():
     """, unsafe_allow_html=True)
     st.sidebar.markdown("---")
 
-    # ── Dataset selection (sidebar) ───────────────────────────────────────
-    st.sidebar.header("Dataset Selection")
+    # ── Default dataset paths ─────────────────────────────────────────────
     dataset_dir = os.path.join(os.path.dirname(__file__), "data")
     if not os.path.isdir(dataset_dir):
         dataset_dir = os.path.dirname(__file__)
 
-    outage_options, site_options = discover_datasets(dataset_dir)
-
-    default_outage = 'df_cleaned.parquet' if 'df_cleaned.parquet' in outage_options else ('df_cleaned.csv' if 'df_cleaned.csv' in outage_options else outage_options[0])
-    selected_outage_name = st.sidebar.selectbox(
-        "Select outages dataset", outage_options,
-        index=outage_options.index(default_outage),
-    )
-    selected_outage_file = os.path.join(dataset_dir, selected_outage_name)
-
-    selected_site_name = st.sidebar.selectbox(
-        "Select chargepoints dataset", site_options,
-        index=site_options.index('all_charging_sites.csv') if 'all_charging_sites.csv' in site_options else 0,
-    )
-    selected_site_file = os.path.join(dataset_dir, selected_site_name)
+    selected_outage_file = os.path.join(dataset_dir, "df_cleaned.parquet")
+    selected_site_file = os.path.join(dataset_dir, "all_charging_sites.csv")
 
     # ── Load data (fetch from API if file missing) ────────────────────────
     t0 = time.time()
@@ -278,13 +265,10 @@ def main():
         # Create map with pin (if previously clicked)
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
-            show_chargepoints=filters["show_chargepoints"],
-            show_buffers=filters["show_buffers"],
-            show_heatmap=filters["show_heatmap"],
+            show_layers=filters["show_layers"],
             selected_categories=filters["selected_categories"],
             live_incidents=data["live_incidents"],
             risk_predictions=data["risk_predictions"],
-            show_risk_heatmap=filters["show_risk_heatmap"],
             confidence_threshold=filters.get("confidence_threshold", 0.5),
             risk_report=data["risk_report"],
             clicked_lat=st.session_state.get("pin_lat"),

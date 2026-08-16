@@ -72,13 +72,10 @@ def _interpolate_risk(clicked_lat, clicked_lon, risk_predictions, max_radius_km=
 def create_advanced_map(
     charging_sites,
     filtered_outages,
-    show_chargepoints: bool = True,
-    show_buffers: bool = True,
-    show_heatmap: bool = True,
+    show_layers=None,
     selected_categories=None,
     live_incidents=None,
     risk_predictions=None,
-    show_risk_heatmap: bool = False,
     confidence_threshold: float = 0.5,
     risk_report=None,
     clicked_lat=None,
@@ -96,16 +93,16 @@ def create_advanced_map(
         'site_category'.
     filtered_outages : pd.DataFrame
         DataFrame of outages already filtered by user selections.
-    show_buffers : bool, optional
-        Whether to display 2-mile buffer circles around each site.
+    show_layers : list of str, optional
+        Layer names to display. If None, all layers are shown.
     selected_categories : list of str, optional
         List of site categories to display. If None, all categories are shown.
     live_incidents : pd.DataFrame, optional
         DataFrame of current live incidents.
     risk_predictions : pd.DataFrame, optional
         Risk model predictions with lat, lon, risk_level, confidence.
-    show_risk_heatmap : bool, optional
-        Whether to display the risk heatmap layer.
+    confidence_threshold : float, optional
+        Minimum model confidence for risk heatmap cells.
     risk_report : InsightReport, optional
         AI recommendation report with charging site suggestions.
     flexibility_tenders : GeoDataFrame, optional
@@ -116,6 +113,13 @@ def create_advanced_map(
     folium.Map
         A Folium map object with markers and optional buffer circles.
     """
+
+    if show_layers is None:
+        show_layers = [
+            "Chargepoints", "Buffer Zones", "Outage Heatmap",
+            "Risk Heatmap", "Flexibility Tenders", "AI Recommended Sites",
+            "Live Incidents",
+        ]
 
     # Center map on charging sites
     center_lat = charging_sites['latitude'].mean()
@@ -183,7 +187,7 @@ def create_advanced_map(
         dt_arr = None
 
     # ── Risk heatmap layer (rendered below chargepoints) ─────────────
-    if show_risk_heatmap and risk_predictions is not None and not risk_predictions.empty:
+    if "Risk Heatmap" in show_layers and risk_predictions is not None and not risk_predictions.empty:
         risk_group = folium.FeatureGroup(name='Risk Heatmap')
 
         cell_size = 0.01  # half of 0.02° grid cell
@@ -244,7 +248,7 @@ def create_advanced_map(
         m.get_root().html.add_child(folium.Element(risk_js))
 
     # ── Flexibility Tender polygons ──────────────────────────────────────
-    if flexibility_tenders is not None and not flexibility_tenders.empty:
+    if "Flexibility Tenders" in show_layers and flexibility_tenders is not None and not flexibility_tenders.empty:
         flex_group = folium.FeatureGroup(name="Flexibility Tenders")
 
         # Color mapping by need_type
@@ -285,12 +289,8 @@ def create_advanced_map(
 
         flex_group.add_to(m)
 
-    if show_chargepoints:
-        buffer_group = folium.FeatureGroup(name="Buffer Zones")
-        chargepoint_group = folium.FeatureGroup(name="Chargepoints")
-    else:
-        buffer_group = None
-        chargepoint_group = None
+    buffer_group = folium.FeatureGroup(name="Buffer Zones") if "Buffer Zones" in show_layers else None
+    chargepoint_group = folium.FeatureGroup(name="Chargepoints") if "Chargepoints" in show_layers else None
 
     for site_idx, (idx, site) in enumerate(charging_sites.iterrows()):
         if chargepoint_group is None:
@@ -326,7 +326,7 @@ def create_advanced_map(
         marker_size = max(8, min(15, outage_count + 5))
 
         # Add 2-mile buffer FIRST (below markers)
-        if show_buffers and buffer_group is not None:
+        if buffer_group is not None:
             folium.Circle(
                 location=[site['latitude'], site['longitude']],
                 radius=3218,  # 2 miles in meters
@@ -358,7 +358,7 @@ def create_advanced_map(
         chargepoint_group.add_to(m)
 
     # Add outage heatmap
-    if show_heatmap and not filtered_outages.empty:
+    if "Outage Heatmap" in show_layers and not filtered_outages.empty:
         from folium.plugins import HeatMap
 
         heat_data = [
@@ -379,7 +379,7 @@ def create_advanced_map(
             ).add_to(m)
 
     # ── AI Recommended Charge Sites ────────────────────────────────────
-    if risk_report and hasattr(risk_report, 'recommendations'):
+    if "AI Recommended Sites" in show_layers and risk_report and hasattr(risk_report, 'recommendations'):
         ai_recs_group = folium.FeatureGroup(name="AI Recommended Sites")
 
         for rec in risk_report.recommendations:
@@ -429,7 +429,7 @@ def create_advanced_map(
         ai_recs_group.add_to(m)
 
     # ── Live incident markers (red pulsing) ────────────────────────────
-    if live_incidents is not None and not live_incidents.empty:
+    if "Live Incidents" in show_layers and live_incidents is not None and not live_incidents.empty:
         live_group = folium.FeatureGroup(name="Live Incidents")
         for _, inc in live_incidents.iterrows():
             lat = inc.get("latitude")
