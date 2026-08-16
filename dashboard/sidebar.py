@@ -131,7 +131,8 @@ def render_sidebar(charging_sites, outages):
     # ── Map layer visibility ────────────────────────────────────────────
     _ALL_LAYERS = [
         "Risk Heatmap",
-        "Flexibility Tenders",
+        "Biannual Tenders",
+        "Monthly Tenders",
         "Buffer Zones",
         "Chargepoints",
         "Outage Heatmap",
@@ -290,6 +291,64 @@ def maybe_fetch_outage_data(refresh_interval_min):
             st.session_state["_last_outage_fetch_ts"] = _time.time()
         except (ImportError, Exception):
             pass
+
+
+def maybe_refresh_tenders(dataset_dir):
+    """Check daily if biannual/monthly tender data has changed on the API.
+
+    If the API data differs from the local file, force a re-download.
+    Runs at most once every 24 hours.
+    """
+    if "_last_tender_refresh_ts" not in st.session_state:
+        st.session_state["_last_tender_refresh_ts"] = 0.0
+
+    _elapsed = _time.time() - st.session_state["_last_tender_refresh_ts"]
+    if _elapsed < 86400:  # 24 hours
+        return
+
+    st.session_state["_last_tender_refresh_ts"] = _time.time()
+
+    # ── Biannual tenders ──────────────────────────────────────────────
+    biannual_path = os.path.join(dataset_dir, "flexibility_tenders.geojson")
+    try:
+        from data.fetch_flexibility_tenders import has_data_changed, run_flexibility_fetch
+        if os.path.exists(biannual_path) and has_data_changed(biannual_path):
+            fetch_status = st.sidebar.empty()
+            fetch_status.caption("🔄 Biannual tenders updated — re-downloading...")
+            result = run_flexibility_fetch(full=True)
+            if result.get("fetched"):
+                fetch_status.success("✅ Biannual tenders refreshed")
+                st.toast("Biannual tender data updated.", icon="🔄")
+                # Clear cached data so it reloads
+                from dashboard.app_logic import load_flexibility_tenders
+                load_flexibility_tenders.clear()
+            elif result.get("error"):
+                fetch_status.warning(f"⚠️ Biannual refresh: {result['error']}")
+            else:
+                fetch_status.empty()
+    except (ImportError, Exception):
+        pass
+
+    # ── Monthly tenders ───────────────────────────────────────────────
+    monthly_path = os.path.join(dataset_dir, "monthly_tenders.geojson")
+    try:
+        from data.fetch_monthly_tenders import has_data_changed as monthly_has_changed
+        from data.fetch_monthly_tenders import run_monthly_tenders_fetch
+        if os.path.exists(monthly_path) and monthly_has_changed(monthly_path):
+            fetch_status = st.sidebar.empty()
+            fetch_status.caption("🔄 Monthly tenders updated — re-downloading...")
+            result = run_monthly_tenders_fetch(full=True)
+            if result.get("fetched"):
+                fetch_status.success("✅ Monthly tenders refreshed")
+                st.toast("Monthly tender data updated.", icon="🔄")
+                from dashboard.app_logic import load_monthly_tenders
+                load_monthly_tenders.clear()
+            elif result.get("error"):
+                fetch_status.warning(f"⚠️ Monthly refresh: {result['error']}")
+            else:
+                fetch_status.empty()
+    except (ImportError, Exception):
+        pass
 
 
 def apply_filters(outages, filters):

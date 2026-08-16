@@ -82,6 +82,7 @@ def create_advanced_map(
     clicked_lng=None,
     clicked_site_name=None,
     flexibility_tenders=None,
+    monthly_tenders=None,
 ):
     """
     Create an advanced interactive map with enhanced features.
@@ -247,11 +248,10 @@ def create_advanced_map(
         """
         m.get_root().html.add_child(folium.Element(risk_js))
 
-    # ── Flexibility Tender polygons ──────────────────────────────────────
-    if "Flexibility Tenders" in show_layers and flexibility_tenders is not None and not flexibility_tenders.empty:
-        flex_group = folium.FeatureGroup(name="Flexibility Tenders")
+    # ── Biannual Tender polygons ───────────────────────────────────────
+    if "Biannual Tenders" in show_layers and flexibility_tenders is not None and not flexibility_tenders.empty:
+        flex_group = folium.FeatureGroup(name="Biannual Tenders")
 
-        # Color mapping by need_type
         _flex_colors = {
             "Variable Availability": ("#0066CC", "#004C99"),
             "Variable Availability + Operational Utilisation": ("#7B2D8E", "#5A1F68"),
@@ -263,7 +263,6 @@ def create_advanced_map(
             fill_color, border_color = _flex_colors.get(need, _flex_default)
             substation = row.get("substation_name", "Unknown")
 
-            # Build a minimal tooltip — the detail panel is in Streamlit
             tooltip_html = f"<b>{substation}</b><br>{need}"
 
             geo_json = folium.GeoJson(
@@ -287,6 +286,45 @@ def create_advanced_map(
             geo_json.add_to(flex_group)
 
         flex_group.add_to(m)
+
+    # ── Monthly Tender polygons ────────────────────────────────────────
+    if "Monthly Tenders" in show_layers and monthly_tenders is not None and not monthly_tenders.empty:
+        monthly_group = folium.FeatureGroup(name="Monthly Tenders")
+
+        _monthly_colors = {
+            "Variable Availability": ("#E67E22", "#D35400"),
+            "Variable Availability + Operational Utilisation": ("#8E44AD", "#6C3483"),
+        }
+        _monthly_default = ("#95A5A6", "#7F8C8D")
+
+        for _, row in monthly_tenders.iterrows():
+            need = str(row.get("need_type", ""))
+            fill_color, border_color = _monthly_colors.get(need, _monthly_default)
+            substation = row.get("substation_name", "Unknown")
+
+            tooltip_html = f"<b>{substation}</b><br>{need}"
+
+            geo_json = folium.GeoJson(
+                data=row["geometry"].__geo_interface__,
+                style_function=lambda x, fc=fill_color, bc=border_color: {
+                    "fillColor": fc,
+                    "color": bc,
+                    "weight": 1,
+                    "fillOpacity": 0.3,
+                },
+                highlight_function=lambda x: {
+                    "fillOpacity": 0.6,
+                    "weight": 2,
+                },
+                tooltip=folium.Tooltip(tooltip_html),
+            )
+            geo_json.add_child(folium.Popup(
+                f'<div class="flex-tender" data-substation="{substation}"><b>{substation}</b></div>',
+                max_width=200,
+            ))
+            geo_json.add_to(monthly_group)
+
+        monthly_group.add_to(m)
 
     buffer_group = folium.FeatureGroup(name="Buffer Zones") if "Buffer Zones" in show_layers else None
     chargepoint_group = folium.FeatureGroup(name="Chargepoints") if "Chargepoints" in show_layers else None

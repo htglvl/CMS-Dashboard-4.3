@@ -14,8 +14,8 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from dashboard.app_logic import prepare_app_data, load_data, load_flexibility_tenders
-from dashboard.sidebar import render_sidebar, setup_autorefresh, maybe_fetch_outage_data
+from dashboard.app_logic import prepare_app_data, load_data, load_flexibility_tenders, load_monthly_tenders
+from dashboard.sidebar import render_sidebar, setup_autorefresh, maybe_fetch_outage_data, maybe_refresh_tenders
 from dashboard.map import create_advanced_map
 from dashboard.chart_display import display_dynamic_charts
 from dashboard.click_processor import process_map_click
@@ -115,6 +115,10 @@ def main():
         st.session_state.flex_selected_substation = None
     if "flex_page_index" not in st.session_state:
         st.session_state.flex_page_index = 0
+    if "monthly_selected_substation" not in st.session_state:
+        st.session_state.monthly_selected_substation = None
+    if "monthly_page_index" not in st.session_state:
+        st.session_state.monthly_page_index = 0
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
 
@@ -225,6 +229,32 @@ def main():
     flex_grouped = flex_result[1] if flex_result else None
     t0 = _ts("load_flexibility_tenders", t0)
 
+    # ── Monthly tenders: fetch from API if missing or stale ─────────────
+    monthly_geojson_path = os.path.join(dataset_dir, "monthly_tenders.geojson")
+    try:
+        from data.fetch_monthly_tenders import run_monthly_tenders_fetch
+        if is_cache_stale(Path(monthly_geojson_path)):
+            fetch_status = st.sidebar.empty()
+            fetch_status.caption("🔄 Refreshing monthly tenders...")
+            monthly_fetch_result = run_monthly_tenders_fetch()
+            if monthly_fetch_result.get("error"):
+                fetch_status.warning(f"⚠️ Monthly fetch: {monthly_fetch_result['error']}")
+            elif monthly_fetch_result.get("fetched"):
+                fetch_status.success("✅ Monthly tenders updated")
+            else:
+                fetch_status.empty()
+    except (ImportError, Exception):
+        pass
+
+    monthly_mtime = os.path.getmtime(monthly_geojson_path) if os.path.exists(monthly_geojson_path) else 0
+    monthly_result = load_monthly_tenders(monthly_geojson_path, monthly_mtime)
+    monthly_gdf = monthly_result[0] if monthly_result else None
+    monthly_grouped = monthly_result[1] if monthly_result else None
+    t0 = _ts("load_monthly_tenders", t0)
+
+    # ── Daily check: refresh tenders if API data changed ──────────────
+    maybe_refresh_tenders(dataset_dir)
+
     # ── Sidebar controls ──────────────────────────────────────────────────
     filters = render_sidebar(charging_sites, outages)
     t0 = _ts("render_sidebar", t0)
@@ -273,6 +303,7 @@ def main():
             clicked_lng=st.session_state.get("pin_lng"),
             clicked_site_name=st.session_state.get("selected_site"),
             flexibility_tenders=flex_gdf,
+            monthly_tenders=monthly_gdf,
         )
 
         # Render map
@@ -301,7 +332,7 @@ def main():
         print(f"[INFO-SECTION] session pin_lat: {st.session_state.get('pin_lat')}")
         print(f"[INFO-SECTION] session selected_site: {st.session_state.get('selected_site')}")
 
-        # ── Flexibility tender click detection (point-in-polygon) ────────
+        # ── Tender click detection (point-in-polygon) ───────────────────
         _click_lat = None
         _click_lng = None
         if last_object:
@@ -311,24 +342,47 @@ def main():
             _click_lat = last_clicked.get('lat')
             _click_lng = last_clicked.get('lng')
 
-        _flex_hit = None
-        if _click_lat is not None and _click_lng is not None and flex_gdf is not None and not flex_gdf.empty:
-            from shapely.geometry import Point
+        from shapely.geometry import Point
+        _biannual_hit = None
+        _monthly_hit = None
+        if _click_lat is not None and _click_lng is not None:
             _pt = Point(_click_lng, _click_lat)  # shapely is (x, y) = (lng, lat)
-            for _, _row in flex_gdf.iterrows():
-                if _row.geometry.contains(_pt):
-                    _flex_hit = _row.get("substation_name")
-                    break
-            print(f"[FLEX-DEBUG] click=({_click_lat:.4f}, {_click_lng:.4f}), _flex_hit={_flex_hit}")
+            if flex_gdf is not None and not flex_gdf.empty:
+                for _, _row in flex_gdf.iterrows():
+                    if _row.geometry.contains(_pt):
+                        _biannual_hit = _row.get("substation_name")
+                        break
+            if monthly_gdf is not None and not monthly_gdf.empty:
+                for _, _row in monthly_gdf.iterrows():
+                    if _row.geometry.contains(_pt):
+                        _monthly_hit = _row.get("substation_name")
+                        break
+            print(f"[TENDER-DEBUG] click=({_click_lat:.4f}, {_click_lng:.4f}), biannual={_biannual_hit}, monthly={_monthly_hit}")
 
-        if _flex_hit:
-            st.session_state.flex_selected_substation = _flex_hit
-            st.session_state.flex_page_index = 0
+        if _biannual_hit or _monthly_hit:
+            # Set pin and site label
             st.session_state.pin_lat = _click_lat
             st.session_state.pin_lng = _click_lng
-            st.session_state.selected_site = f"\U0001f4cd Location ({_click_lat:.4f},{_click_lng:.4f}) ({_flex_hit})"
             st.session_state.last_popup_html = popup_html
-            print(f"[FLEX-CLICK] Selected substation: {_flex_hit}")
+
+            # Build site label from hits
+            _hit_parts = []
+            if _biannual_hit:
+                _hit_parts.append(_biannual_hit)
+                st.session_state.flex_selected_substation = _biannual_hit
+                st.session_state.flex_page_index = 0
+            else:
+                st.session_state.flex_selected_substation = None
+            if _monthly_hit:
+                _hit_parts.append(_monthly_hit)
+                st.session_state.monthly_selected_substation = _monthly_hit
+                st.session_state.monthly_page_index = 0
+            else:
+                st.session_state.monthly_selected_substation = None
+
+            _hit_label = " + ".join(_hit_parts)
+            st.session_state.selected_site = f"\U0001f4cd Location ({_click_lat:.4f},{_click_lng:.4f}) ({_hit_label})"
+            print(f"[TENDER-CLICK] biannual={_biannual_hit}, monthly={_monthly_hit}")
             st.rerun()
 
         elif last_clicked or last_object:
@@ -355,9 +409,11 @@ def main():
                     st.session_state.pin_lat = result['pin_lat']
                     st.session_state.pin_lng = result['pin_lng']
                     st.session_state.selected_site = result['selected_site']
-                    # Clear flexibility tender selection when clicking elsewhere
+                    # Clear tender selections when clicking elsewhere
                     st.session_state.flex_selected_substation = None
                     st.session_state.flex_page_index = 0
+                    st.session_state.monthly_selected_substation = None
+                    st.session_state.monthly_page_index = 0
                     # Persist popup HTML across reruns; clear when clicking blank spot
                     if popup_html:
                         st.session_state.last_popup_html = popup_html
@@ -395,6 +451,8 @@ def main():
                 clicked_lng=st.session_state.get("pin_lng"),
                 flex_selected_substation=st.session_state.get("flex_selected_substation"),
                 flex_grouped=flex_grouped,
+                monthly_selected_substation=st.session_state.get("monthly_selected_substation"),
+                monthly_grouped=monthly_grouped,
             )
 
     with col2:

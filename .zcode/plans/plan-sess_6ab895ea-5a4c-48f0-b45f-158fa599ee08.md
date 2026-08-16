@@ -1,19 +1,41 @@
-## Plan: Add Flexibility Region Info Tab
+## Plan: Add Monthly Tender Data + Rename Layers
 
-### Goal
-When clicking a flexibility tender polygon, a **"Region Info" tab** appears as the first tab showing the region's overall info with contract pagination arrows. When clicking outside a flex region, no extra tab appears and Frequency Timeline stays first.
+### 1. New fetch script: `data/fetch_monthly_tenders.py`
+- Mirror `fetch_flexibility_tenders.py` structure
+- API: `https://electricitynorthwest.opendatasoft.com/api/explore/v2.1/catalog/datasets/sp-enw-flexibility-monthly-tender-site-requirements/exports/geojson?limit=-1`
+- Output: `data/monthly_tenders.geojson`
+- State file: `data/.last_fetch_monthly_tenders`
+- `run_monthly_tenders_fetch()` function
 
-### Changes
+### 2. `dashboard/app_logic.py` — add `load_monthly_tenders()`
+- Same pattern as `load_flexibility_tenders()` — reads GeoJSON, returns `(dissolved_gdf, grouped_dict)`
 
-#### 1. `enhanced_app.py`
-- **Remove** the standalone flex detail panel (lines 378-442) — it moves into the tab
-- **Pass** `flex_selected_substation` and `flex_grouped` to `display_dynamic_charts()`
+### 3. `enhanced_app.py` — fetch + load + click detection
+- Fetch monthly tenders (same `is_cache_stale` pattern)
+- Load with `load_monthly_tenders()` → `monthly_gdf`, `monthly_grouped`
+- **Click detection checks BOTH independently**: biannual hit? show Biannual Region Info. Monthly hit? show Monthly Region Info. Both can be true simultaneously.
+- Pass `monthly_tenders=monthly_gdf` to map
+- Pass `monthly_selected_substation` + `monthly_grouped` to chart_display
 
-#### 2. `dashboard/chart_display.py`
-- **Accept** `flex_selected_substation=None` and `flex_grouped=None` parameters
-- **Conditionally build tab list**: if a flex region is selected, prepend `"Region Info"` as the first tab
-- **Render** the flex detail content (overall region info + pagination arrows) inside the Region Info tab using the same logic currently in `enhanced_app.py`
+### 4. `dashboard/sidebar.py` — rename + add layer
+- `"Flexibility Tenders"` → `"Biannual Tenders"`
+- Add `"Monthly Tenders"`
 
-### Files to Edit
-1. `enhanced_app.py` — remove flex panel, update `display_dynamic_charts` call
-2. `dashboard/chart_display.py` — accept new params, conditional tab, render flex content
+### 5. `dashboard/map.py` — rename + add monthly layer
+- Rename `name="Flexibility Tenders"` → `name="Biannual Tenders"`
+- Add new FeatureGroup `name="Monthly Tenders"` with same rendering logic
+- Accept `monthly_tenders` parameter
+
+### 6. `dashboard/chart_display.py` — region info tabs
+- Accept `monthly_selected_substation` + `monthly_grouped` params
+- `"Region Info"` → `"Biannual Region Info"` (when biannual match)
+- Add `"Monthly Region Info"` tab (when monthly match)
+- Both tabs can appear simultaneously, each with shared region info + contract sub-tabs
+
+### Files
+1. **Create** `data/fetch_monthly_tenders.py`
+2. **Edit** `dashboard/app_logic.py`
+3. **Edit** `enhanced_app.py`
+4. **Edit** `dashboard/sidebar.py`
+5. **Edit** `dashboard/map.py`
+6. **Edit** `dashboard/chart_display.py`

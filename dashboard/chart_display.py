@@ -36,7 +36,7 @@ def _ts(msg, t0):
     return t1
 
 
-def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=False, risk_predictions=None, risk_model_choice="Random Forest", clicked_lat=None, clicked_lng=None, flex_selected_substation=None, flex_grouped=None):
+def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=False, risk_predictions=None, risk_model_choice="Random Forest", clicked_lat=None, clicked_lng=None, flex_selected_substation=None, flex_grouped=None, monthly_selected_substation=None, monthly_grouped=None):
     """Display dynamic charts based on selected site."""
 
     t_total = time.time()
@@ -71,31 +71,27 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
     render_site_summary(site_outages, site_info)
     t0 = _ts("Site summary", t0)
 
-    # ── Build tab list (conditionally prepend Region Info) ──────────────
+    # ── Build tab list (conditionally prepend Region Info tabs) ─────────
     _has_flex = bool(flex_selected_substation and flex_grouped)
-    print(f"[FLEX-TAB] flex_selected_substation={flex_selected_substation}, flex_grouped={flex_grouped is not None}, _has_flex={_has_flex}")
-    _tab_names = (
-        ["Region Info", "Frequency Timeline", "Customer Impact",
-         "Risk Assessment", "Insights", "Risk Prediction"]
-        if _has_flex
-        else ["Frequency Timeline", "Customer Impact",
-              "Risk Assessment", "Insights", "Risk Prediction"]
-    )
+    _has_monthly = bool(monthly_selected_substation and monthly_grouped)
+    print(f"[TENDER-TAB] biannual={flex_selected_substation}, monthly={monthly_selected_substation}")
+
+    _tab_names = ["Frequency Timeline", "Customer Impact",
+                  "Risk Assessment", "Insights", "Risk Prediction"]
+    if _has_flex:
+        _tab_names.insert(0, "Biannual Region Info")
+    if _has_monthly:
+        _tab_names.insert(0 if _has_flex else 0, "Monthly Region Info")
+
     _tabs = st.tabs(_tab_names)
 
-    if _has_flex:
-        _tab_flex = _tabs[0]
-        _tab_freq = _tabs[1]
-        _tab_cust = _tabs[2]
-        _tab_risk = _tabs[3]
-        _tab_insg = _tabs[4]
-        _tab_pred = _tabs[5]
-    else:
-        _tab_freq = _tabs[0]
-        _tab_cust = _tabs[1]
-        _tab_risk = _tabs[2]
-        _tab_insg = _tabs[3]
-        _tab_pred = _tabs[4]
+    # Map tabs by name for robustness
+    _tab_map = {name: tab for name, tab in zip(_tab_names, _tabs)}
+    _tab_freq = _tab_map["Frequency Timeline"]
+    _tab_cust = _tab_map["Customer Impact"]
+    _tab_risk = _tab_map["Risk Assessment"]
+    _tab_insg = _tab_map["Insights"]
+    _tab_pred = _tab_map["Risk Prediction"]
 
     with _tab_freq:
         render_frequency_timeline(chart_generator, site_outages, site_name)
@@ -117,92 +113,87 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
         render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice, clicked_lat, clicked_lng)
         t0 = _ts("Tab: Risk Prediction", t0)
 
-    # ── Region Info tab (flexibility tender detail) ────────────────────
-    if _has_flex:
-        with _tab_flex:
-            _sub = flex_selected_substation
-            _records = flex_grouped.get(_sub, [])
-            print(f"[FLEX-TAB] Rendering Region Info for substation={_sub}, records={len(_records)}")
-            if _records:
-                _total = len(_records)
+    # ── Region Info tabs (tender detail) ───────────────────────────────
+    _REGION_FIELDS = [
+        ("Substation Name", "substation_name"),
+        ("Post Codes", "post_codes"),
+        ("Voltage of connection (kV)", "voltage_of_connection_kv"),
+        ("Maximum requirement (MVA)", "maximum_requirement_mva"),
+        ("Easting", "easting"),
+        ("Northing", "northing"),
+        ("Lat", "lat"),
+        ("Long", "long"),
+    ]
+    _CONTRACT_FIELDS = [
+        ("Need Type", "need_type"),
+        ("Delivery start date", "delivery_start_date"),
+        ("Months Required", "months_required"),
+        ("Times required", "times_required"),
+        ("Days required", "days_required"),
+        ("Maximum Utilisation Price (£/MWh)", "maximum_utilisation_price_mw"),
+        ("Estimated availability hours", "estimated_availability_hours"),
+        ("Estimated utilisation hours", "estimated_utilisation_hours"),
+        ("Period", "period"),
+        ("Site Number", "site_number"),
+        ("Ceiling Price (£/Period)", "ceiling_price_period"),
+    ]
 
-                # Overall region info (shared across all contracts — from first record)
-                _rec0 = _records[0]
-                _region_fields = [
-                    ("Substation Name", "substation_name"),
-                    ("Post Codes", "post_codes"),
-                    ("Voltage of connection (kV)", "voltage_of_connection_kv"),
-                    ("Maximum requirement (MVA)", "maximum_requirement_mva"),
-                    ("Easting", "easting"),
-                    ("Northing", "northing"),
-                    ("Lat", "lat"),
-                    ("Long", "long"),
-                ]
-                _region_rows = ""
-                for _label, _key in _region_fields:
-                    _val = _rec0.get(_key)
-                    if _val is None or (isinstance(_val, float) and pd.isna(_val)):
-                        _val = "—"
-                    _region_rows += (
-                        f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td>"
-                        f"<td style='padding:4px 8px;'>{_val}</td></tr>"
+    def _render_region_tab(tab, records, label):
+        """Render shared region info + contract sub-tabs inside *tab*."""
+        with tab:
+            if not records:
+                st.info(f"No contract records found for this {label} substation.")
+                return
+            _rec0 = records[0]
+            _region_rows = ""
+            for _label, _key in _REGION_FIELDS:
+                _val = _rec0.get(_key)
+                if _val is None or (isinstance(_val, float) and pd.isna(_val)):
+                    _val = "—"
+                _region_rows += (
+                    f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td>"
+                    f"<td style='padding:4px 8px;'>{_val}</td></tr>"
+                )
+            st.markdown(
+                f"""<div style="border:1px solid #e0e0e0; border-radius:6px; padding:4px; margin-bottom:12px;">
+                    <table style="width:100%; font-size:0.9em; border-collapse:collapse;">{_region_rows}</table>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            _contract_tab_names = [
+                f"{r.get('need_type', '—')} | {r.get('delivery_start_date', '—')} | {r.get('period', '—')}"
+                for r in records
+            ]
+            _contract_tabs = st.tabs(_contract_tab_names)
+            for _ctab, _rec in zip(_contract_tabs, records):
+                with _ctab:
+                    _contract_rows = ""
+                    for _label, _key in _CONTRACT_FIELDS:
+                        _val = _rec.get(_key)
+                        if _val is None or (isinstance(_val, float) and pd.isna(_val)):
+                            _val = "—"
+                        _contract_rows += (
+                            f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td>"
+                            f"<td style='padding:4px 8px;'>{_val}</td></tr>"
+                        )
+                    st.markdown(
+                        f"""<div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:4px;">
+                            <table style="width:100%; font-size:0.9em; border-collapse:collapse;">{_contract_rows}</table>
+                        </div>""",
+                        unsafe_allow_html=True,
                     )
 
-                st.markdown(
-                    f"""
-                    <div style="border:1px solid #e0e0e0; border-radius:6px; padding:4px; margin-bottom:12px;">
-                        <table style="width:100%; font-size:0.9em; border-collapse:collapse;">
-                            {_region_rows}
-                        </table>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # Each contract as a sub-tab (no rerun on switch)
-                _contract_tab_names = [
-                    f"{r.get('need_type', '—')} | {r.get('delivery_start_date', '—')} | {r.get('period', '—')}"
-                    for r in _records
-                ]
-                _contract_tabs = st.tabs(_contract_tab_names)
-
-                for _i, (_ctab, _rec) in enumerate(zip(_contract_tabs, _records)):
-                    with _ctab:
-                        _contract_fields = [
-                            ("Need Type", "need_type"),
-                            ("Delivery start date", "delivery_start_date"),
-                            ("Months Required", "months_required"),
-                            ("Times required", "times_required"),
-                            ("Days required", "days_required"),
-                            ("Maximum Utilisation Price (£/MWh)", "maximum_utilisation_price_mw"),
-                            ("Estimated availability hours", "estimated_availability_hours"),
-                            ("Estimated utilisation hours", "estimated_utilisation_hours"),
-                            ("Period", "period"),
-                            ("Site Number", "site_number"),
-                            ("Ceiling Price (£/Period)", "ceiling_price_period"),
-                        ]
-
-                        _contract_rows = ""
-                        for _label, _key in _contract_fields:
-                            _val = _rec.get(_key)
-                            if _val is None or (isinstance(_val, float) and pd.isna(_val)):
-                                _val = "—"
-                            _contract_rows += (
-                                f"<tr><td style='font-weight:600; padding:4px 8px; white-space:nowrap;'>{_label}</td>"
-                                f"<td style='padding:4px 8px;'>{_val}</td></tr>"
-                            )
-
-                        st.markdown(
-                            f"""
-                            <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:4px;">
-                                <table style="width:100%; font-size:0.9em; border-collapse:collapse;">
-                                    {_contract_rows}
-                                </table>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-            else:
-                st.info("No contract records found for this substation.")
+    if _has_flex:
+        _render_region_tab(
+            _tab_map["Biannual Region Info"],
+            flex_grouped.get(flex_selected_substation, []),
+            "biannual",
+        )
+    if _has_monthly:
+        _render_region_tab(
+            _tab_map["Monthly Region Info"],
+            monthly_grouped.get(monthly_selected_substation, []),
+            "monthly",
+        )
 
     _ts(f"TOTAL", t_total)
