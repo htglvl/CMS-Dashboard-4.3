@@ -83,6 +83,8 @@ def create_advanced_map(
     clicked_site_name=None,
     flexibility_tenders=None,
     monthly_tenders=None,
+    enw_counties=None,
+    enw_local_authorities=None,
 ):
     """
     Create an advanced interactive map with enhanced features.
@@ -132,6 +134,49 @@ def create_advanced_map(
         tiles=None,
     )
     folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+
+    # ── ENW boundary overlays (rendered first = bottom layer) ─────────
+    if "ENW Counties" in show_layers and enw_counties is not None and not enw_counties.empty:
+        counties_group = folium.FeatureGroup(name="ENW Counties")
+        for _, row in enw_counties.iterrows():
+            name = row.get("county", row.get("name", "Unknown"))
+            geo_json = folium.GeoJson(
+                data=row["geometry"].__geo_interface__,
+                style_function=lambda x: {
+                    "fillColor": "transparent",
+                    "color": "#888888",
+                    "weight": 1.5,
+                    "fillOpacity": 0,
+                },
+                highlight_function=lambda x: {
+                    "weight": 3,
+                    "color": "#333333",
+                },
+                tooltip=folium.Tooltip(f"<b>{name}</b>"),
+            )
+            geo_json.add_to(counties_group)
+        counties_group.add_to(m)
+
+    if "ENW Local Authorities" in show_layers and enw_local_authorities is not None and not enw_local_authorities.empty:
+        la_group = folium.FeatureGroup(name="ENW Local Authorities")
+        for _, row in enw_local_authorities.iterrows():
+            name = row.get("local_authority", row.get("name", "Unknown"))
+            geo_json = folium.GeoJson(
+                data=row["geometry"].__geo_interface__,
+                style_function=lambda x: {
+                    "fillColor": "transparent",
+                    "color": "#5B9BD5",
+                    "weight": 1,
+                    "fillOpacity": 0,
+                },
+                highlight_function=lambda x: {
+                    "weight": 2.5,
+                    "color": "#2E75B6",
+                },
+                tooltip=folium.Tooltip(f"<b>{name}</b>"),
+            )
+            geo_json.add_to(la_group)
+        la_group.add_to(m)
 
     if selected_categories is None:
         selected_categories = charging_sites['site_category'].unique()

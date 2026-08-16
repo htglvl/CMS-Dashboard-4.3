@@ -130,6 +130,8 @@ def render_sidebar(charging_sites, outages):
 
     # ── Map layer visibility ────────────────────────────────────────────
     _ALL_LAYERS = [
+        "ENW Counties",
+        "ENW Local Authorities",
         "Risk Heatmap",
         "Biannual Tenders",
         "Monthly Tenders",

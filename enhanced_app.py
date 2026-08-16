@@ -255,6 +255,20 @@ def main():
     # ── Daily check: refresh tenders if API data changed ──────────────
     maybe_refresh_tenders(dataset_dir)
 
+    # ── ENW boundary overlays ─────────────────────────────────────────
+    @st.cache_data
+    def _load_geojson(path):
+        try:
+            import geopandas as gpd
+            return gpd.read_file(path)
+        except Exception:
+            return None
+
+    counties_path = os.path.join(dataset_dir, "enwl_counties.geojson")
+    la_path = os.path.join(dataset_dir, "enwl_local_authorities.geojson")
+    uk_counties = _load_geojson(counties_path) if os.path.exists(counties_path) else None
+    local_authorities = _load_geojson(la_path) if os.path.exists(la_path) else None
+
     # ── Sidebar controls ──────────────────────────────────────────────────
     filters = render_sidebar(charging_sites, outages)
     t0 = _ts("render_sidebar", t0)
@@ -304,6 +318,8 @@ def main():
             clicked_site_name=st.session_state.get("selected_site"),
             flexibility_tenders=flex_gdf,
             monthly_tenders=monthly_gdf,
+            enw_counties=uk_counties,
+            enw_local_authorities=local_authorities,
         )
 
         # Render map
