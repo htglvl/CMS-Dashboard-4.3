@@ -396,9 +396,15 @@ def main():
             else:
                 st.session_state.monthly_selected_substation = None
 
-            _hit_label = " + ".join(_hit_parts)
-            st.session_state.selected_site = f"\U0001f4cd Location ({_click_lat:.4f},{_click_lng:.4f}) ({_hit_label})"
-            print(f"[TENDER-CLICK] biannual={_biannual_hit}, monthly={_monthly_hit}")
+            # Check if a chargepoint was clicked inside this tender region
+            from dashboard.click_processor import _find_site_from_popup
+            _cp_match = _find_site_from_popup(popup_html, data["charging_sites"])
+            if _cp_match is not None:
+                st.session_state.selected_site = _cp_match['charge_point_location']
+            else:
+                _hit_label = " + ".join(_hit_parts)
+                st.session_state.selected_site = f"\U0001f4cd Location ({_click_lat:.4f},{_click_lng:.4f}) ({_hit_label})"
+            print(f"[TENDER-CLICK] biannual={_biannual_hit}, monthly={_monthly_hit}, chargepoint={_cp_match is not None}")
             st.rerun()
 
         elif last_clicked or last_object:
