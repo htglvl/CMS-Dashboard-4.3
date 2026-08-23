@@ -156,7 +156,14 @@ def fetch_via_export(api_key: str, where: str | None = None) -> pd.DataFrame:
 
 
 def reconcile_with_existing(new_df: pd.DataFrame, output_path: Path) -> pd.DataFrame:
-    """Merge new records with any existing output file, deduplicating by reference number.
+    """Merge new records with any existing output file, removing ONLY exact duplicates.
+
+    Deduplication must NOT key on ``incident_reference_number`` alone: ENW reuses
+    reference numbers across years/regions (~27x reuse over the archive), so a
+    ref-based drop_duplicates collapsed 311k rows into ~11k on 2026-08-15 and
+    again on 2026-08-23 (see logs/fetch_outages.log).  Exact-row dedup removes
+    just the overlap window between fetches; a guardrail then aborts the save
+    if the merge would ever discard a large share of records again.
 
     After concatenation the datetime columns may contain mixed types (strings
     from the CSV and Timestamps from the new data).  We re-parse them to
@@ -167,21 +174,33 @@ def reconcile_with_existing(new_df: pd.DataFrame, output_path: Path) -> pd.DataF
             existing = pd.read_csv(output_path, encoding="utf-8", low_memory=False)
             log.info(f"Existing file has {len(existing):,} records.")
 
-            # Align dtypes: cast datetime columns in existing data to match new_df
+            # Align dtypes on BOTH sides so exact-row comparison works regardless
+            # of whether new_df has been through prepare_for_dashboard yet.
             for col in ["incident_date_time", "restoration_date_time", "Incident Date-time"]:
-                if col in new_df.columns and col in existing.columns:
+                if col in new_df.columns:
+                    new_df[col] = pd.to_datetime(new_df[col], errors="coerce", utc=True)
+                if col in existing.columns:
                     existing[col] = pd.to_datetime(existing[col], errors="coerce", utc=True)
 
-            dedup_col = "incident_reference_number"
-            if dedup_col in new_df.columns and dedup_col in existing.columns:
-                combined = pd.concat([existing, new_df], ignore_index=True)
-                before = len(combined)
-                combined = combined.drop_duplicates(subset=[dedup_col], keep="last")
-                log.info(f"After dedup: {len(combined):,} records (removed {before - len(combined):,} duplicates).")
-                return combined
-            return pd.concat([existing, new_df], ignore_index=True)
+            combined = pd.concat([existing, new_df], ignore_index=True)
+            before = len(combined)
+            # Exact duplicates only (rows fetched twice in overlapping windows).
+            combined = combined.drop_duplicates(keep="last").reset_index(drop=True)
+            removed = before - len(combined)
+            log.info(f"After exact-duplicate removal: {len(combined):,} records (removed {removed:,}).")
+
+            # Guardrail: a healthy incremental merge only trims the overlap.
+            if len(combined) < 0.95 * before:
+                raise RuntimeError(
+                    f"Merge would discard {removed:,} of {before:,} records — "
+                    f"aborting save to protect historical data."
+                )
+            return combined
+        except RuntimeError:
+            raise
         except Exception as exc:
-            log.warning(f"Could not read existing file ({exc}). Using new data only.")
+            # Never fall back to "new data only" — that overwrites the archive.
+            raise RuntimeError(f"Could not read/merge existing file ({exc}); refusing to overwrite.") from exc
     return new_df
 
 
