@@ -7,7 +7,22 @@ risk level (High / Medium / Low) per grid cell.  Two models are trained:
 * **Random Forest** — for explainability (feature importance).
 * **XGBoost** — for higher accuracy on tabular data.
 
-The feature engineering pipeline grids the study area into ~1 km cells
+Methodology summary (full rationale: ``docs/model_methodology.md``)
+-------------------------------------------------------------------
+* Samples are (grid cell x monthly cutoff) pairs: features aggregate the
+  preceding **12 months**, labels count outages in the following
+  **3 months**.
+* Labels are tiered by a **frozen threshold** computed once per fold from
+  the training pool only (never per-window quantiles, so "High" keeps a
+  constant meaning across time).
+* Validation uses **expanding-window walk-forward** over 5 chronological
+  folds with a **15-month purge gap** (= feature window + label horizon)
+  between training and validation cutoffs.
+* Class imbalance is handled via balanced class weights + macro-F1 as the
+  primary metric.  Naive baselines (majority class, persistence) are
+  reported alongside so model skill is measurable.
+
+The feature engineering pipeline grids the study area into ~2 km cells
 and computes temporal, severity, and spatial features from the outage
 catalogue.  Predictions include a confidence score (class probability)
 and per-cell probability estimates.
@@ -16,11 +31,10 @@ Usage
 -----
     python risk_model.py                # Train + evaluate + save
     python risk_model.py --predict      # Load saved models, predict all cells
-    python risk_model.py --evaluate     # Print evaluation metrics only
 
 Environment
 -----------
-Requires ``df_cleaned.csv`` in the same directory.
+Requires ``df_cleaned.csv`` in the data directory.
 Models are saved to ``models/rf_model.pkl`` and ``models/xgb_model.pkl``.
 """
 
@@ -58,8 +72,22 @@ FEATURES_CACHE = Path(__file__).parent.parent / "data" / "grid_features_cache.pk
 # Grid cell size in degrees (~0.02° ≈ 2 km at UK latitudes)
 CELL_SIZE = 0.02
 
+# Sliding-window design
+FEATURE_MONTHS = 12       # history length for features
+PREDICTION_MONTHS = 3     # label horizon (months ahead being predicted)
+
+# Purge gap between training and validation cutoffs in walk-forward CV.
+# A training sample's LABEL window [C, C+3mo) must never overlap a
+# validation sample's FEATURE window [V-12mo, V).  The strict condition
+# is C <= V - feature_months - prediction_months, hence the 15-month gap.
+PURGE_MONTHS = FEATURE_MONTHS + PREDICTION_MONTHS
+
 # Duration outlier cap (hours) — prevents extreme outliers from distorting avg/std
 DURATION_CAP_HOURS = 168.0  # 1 week
+
+# Quantile of non-zero future outage counts used as the frozen High/Medium
+# boundary.  Chosen to keep the three classes roughly balanced.
+HIGH_THRESHOLD_QUANTILE = 0.67
 
 # Risk class labels
 RISK_LABELS = ["Low", "Medium", "High"]
@@ -204,12 +232,9 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
     # Build a lookup of (lat, lon) -> outage_count
     cell_counts = features.set_index(["lat", "lon"])["outage_count"].to_dict()
     neighbor_counts = []
-    neighbor_avg_durations = []
     for _, row in features.iterrows():
         lat, lon = row["lat"], row["lon"]
         total_neighbors = 0.0
-        total_dur_neighbors = 0.0
-        count_neighbors = 0
         for dlat in [-cell_size, 0, cell_size]:
             for dlon in [-cell_size, 0, cell_size]:
                 if dlat == 0 and dlon == 0:
@@ -217,7 +242,6 @@ def build_grid_features(outages: pd.DataFrame, cell_size: float = CELL_SIZE,
                 key = (round(lat + dlat, 6), round(lon + dlon, 6))
                 if key in cell_counts:
                     total_neighbors += cell_counts[key]
-                    count_neighbors += 1
         neighbor_counts.append(total_neighbors)
     features["neighbor_outage_count"] = neighbor_counts
 
@@ -267,16 +291,21 @@ def invalidate_features_cache():
     _features_mem_mtime = 0.0
 
 
-def assign_risk_labels(features: pd.DataFrame) -> pd.DataFrame:
-    """Assign risk labels using quantile-based binning on outage_count.
+def assign_risk_labels(features: pd.DataFrame,
+                       high_threshold: float | None = None) -> pd.DataFrame:
+    """Assign static "current activity" risk labels on ``outage_count``.
 
-    Uses 33rd/67th percentile thresholds of non-zero outage counts
-    for more balanced class distribution than median split.
+    Cells with zero outages are Low; non-zero counts are tiered at the
+    67th percentile of non-zero counts (optionally supplied via
+    ``high_threshold`` so the map uses the same boundary as training).
 
     Parameters
     ----------
     features : pd.DataFrame
         Output of :func:`build_grid_features`.
+    high_threshold : float or None
+        Frozen High/Medium boundary.  If None, computed from this
+        DataFrame's non-zero outage counts.
 
     Returns
     -------
@@ -284,32 +313,83 @@ def assign_risk_labels(features: pd.DataFrame) -> pd.DataFrame:
         Features with an added ``risk_level`` column (categorical).
     """
     df = features.copy()
-    non_zero = df.loc[df["outage_count"] > 0, "outage_count"]
-    if len(non_zero) == 0:
-        df["risk_level"] = "Low"
-    else:
-        # Use 33rd/67th percentiles for more balanced classes
-        q33 = non_zero.quantile(0.33)
-        q67 = non_zero.quantile(0.67)
-        df["risk_level"] = "Low"
-        df.loc[df["outage_count"] > 0, "risk_level"] = "Medium"
-        df.loc[df["outage_count"] > q67, "risk_level"] = "High"
+    if high_threshold is None:
+        non_zero = df.loc[df["outage_count"] > 0, "outage_count"]
+        high_threshold = (float(non_zero.quantile(HIGH_THRESHOLD_QUANTILE))
+                          if len(non_zero) else 0.0)
+    df["risk_level"] = "Low"
+    df.loc[df["outage_count"] > 0, "risk_level"] = "Medium"
+    df.loc[df["outage_count"] > high_threshold, "risk_level"] = "High"
+    df["risk_level"] = pd.Categorical(df["risk_level"], categories=RISK_LABELS, ordered=True)
+    return df
+
+
+def freeze_high_threshold(training_samples: pd.DataFrame) -> float:
+    """Freeze the High/Medium boundary from a *training* pool only.
+
+    The threshold is computed ONCE from non-zero ``future_outage_count``
+    values of the training samples and then applied unchanged to every
+    window (train, validation, production).  Per-window quantiles were
+    rejected because they make "High" a moving target whose meaning
+    shifts month to month — an unlearnable, non-stationary label.
+
+    Parameters
+    ----------
+    training_samples : pd.DataFrame
+        Training rows containing ``future_outage_count``.
+
+    Returns
+    -------
+    float
+        Frozen High threshold (67th percentile of non-zero counts).
+    """
+    counts = training_samples.loc[training_samples["future_outage_count"] > 0,
+                                  "future_outage_count"]
+    if len(counts) == 0:
+        return 0.0
+    return float(counts.quantile(HIGH_THRESHOLD_QUANTILE))
+
+
+def apply_risk_labels(samples: pd.DataFrame, high_threshold: float) -> pd.DataFrame:
+    """Tier sliding-window samples by future outage count using a frozen threshold.
+
+    Low  = no outage in the prediction window
+    Med  = 1 .. threshold outages
+    High = more than ``high_threshold`` outages
+
+    Parameters
+    ----------
+    samples : pd.DataFrame
+        Output of :func:`build_training_samples` (needs ``future_outage_count``).
+    high_threshold : float
+        Frozen boundary from :func:`freeze_high_threshold`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy with an added ``risk_level`` column (categorical).
+    """
+    df = samples.copy()
+    df["risk_level"] = "Low"
+    df.loc[df["future_outage_count"] > 0, "risk_level"] = "Medium"
+    df.loc[df["future_outage_count"] > high_threshold, "risk_level"] = "High"
     df["risk_level"] = pd.Categorical(df["risk_level"], categories=RISK_LABELS, ordered=True)
     return df
 
 
 def build_training_samples(outages: pd.DataFrame,
-                           feature_months: int = 12,
-                           prediction_months: int = 3,
+                           feature_months: int = FEATURE_MONTHS,
+                           prediction_months: int = PREDICTION_MONTHS,
                            step_months: int = 1,
                            start_year: int = 2000,
                            cell_size: float = CELL_SIZE) -> pd.DataFrame:
     """Build training data using a sliding window approach.
 
     For each cutoff date (monthly steps), compute features from the
-    preceding *feature_months* and labels from the following
-    *prediction_months*.  Labels are Low/Medium/High based on quantile
-    binning of outage count in the prediction window.
+    preceding *feature_months* and the future outage count from the
+    following *prediction_months*.  Samples are returned **unlabelled**:
+    tier them with :func:`freeze_high_threshold` + :func:`apply_risk_labels`
+    so thresholds are frozen on training data only (see docs).
 
     Parameters
     ----------
@@ -329,7 +409,7 @@ def build_training_samples(outages: pd.DataFrame,
     Returns
     -------
     pd.DataFrame
-        Columns: lat, lon, cutoff_date, FEATURE_COLS..., risk_level
+        Columns: lat, lon, cutoff_date, FEATURE_COLS..., future_outage_count
     """
     df = outages.copy()
     if not pd.api.types.is_datetime64_any_dtype(df["incident_date_time"]):
@@ -382,20 +462,9 @@ def build_training_samples(outages: pd.DataFrame,
         )
         label_counts.rename(columns={"cell_lat": "lat", "cell_lon": "lon"}, inplace=True)
 
-        # Merge features with labels
+        # Merge features with labels; tiering happens later with a frozen threshold
         merged = features.merge(label_counts, on=["lat", "lon"], how="left")
         merged["future_outage_count"] = merged["future_outage_count"].fillna(0)
-
-        # Assign risk labels using 33rd/67th percentile thresholds
-        non_zero = merged.loc[merged["future_outage_count"] > 0, "future_outage_count"]
-        if len(non_zero) == 0:
-            merged["risk_level"] = "Low"
-        else:
-            q67 = non_zero.quantile(0.67)
-            merged["risk_level"] = "Low"
-            merged.loc[merged["future_outage_count"] > 0, "risk_level"] = "Medium"
-            merged.loc[merged["future_outage_count"] > q67, "risk_level"] = "High"
-        merged["risk_level"] = pd.Categorical(merged["risk_level"], categories=RISK_LABELS, ordered=True)
 
         merged["cutoff_date"] = cutoff
         samples.append(merged)
@@ -480,12 +549,33 @@ def train_xgboost(X_train, y_train, random_state: int = 42):
         reg_alpha=0.1,
         reg_lambda=1.0,
         random_state=random_state,
-        use_label_encoder=False,
         eval_metric="mlogloss",
         n_jobs=-1,
     )
     model.fit(X_train, y_encoded, sample_weight=sample_weights)
     return model, le
+
+
+# ---------------------------------------------------------------------------
+# Baselines
+# ---------------------------------------------------------------------------
+
+
+def majority_class_predictions(train_labels: pd.Series, n: int) -> np.ndarray:
+    """Naive baseline 1: always predict the most frequent training class."""
+    return np.full(n, train_labels.value_counts().idxmax())
+
+
+def persistence_predictions(val_data: pd.DataFrame, high_threshold: float) -> np.ndarray:
+    """Naive baseline 2: "recent activity persists".
+
+    Tiers the CURRENT outage count with the same frozen threshold used for
+    labels.  All training rows have ``outage_count > 0`` (zero-history cells
+    are filtered out), so this baseline can only predict Medium/High — a
+    limitation that is itself informative: it shows the model's skill at
+    anticipating quiet periods, which persistence cannot do.
+    """
+    return np.where(val_data["outage_count"].values > high_threshold, "High", "Medium")
 
 
 # ---------------------------------------------------------------------------
@@ -610,17 +700,47 @@ def load_models():
     return rf_model, xgb_bundle["model"], xgb_bundle["label_encoder"]
 
 
+def load_frozen_threshold() -> float | None:
+    """Load the production High threshold persisted by :func:`_train_and_save`.
+
+    Returns None if no metrics file exists yet (callers fall back to
+    computing the threshold from their own data).
+    """
+    import json
+
+    metrics_path = MODELS_DIR / "accuracy_metrics.json"
+    if not metrics_path.exists():
+        return None
+    try:
+        data = json.loads(metrics_path.read_text())
+        thr = data.get("production_high_threshold")
+        return float(thr) if thr is not None else None
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
 def _train_and_save():
-    """Train both models using walk-forward validation and save to disk.
+    """Train both models using purged walk-forward validation and save to disk.
 
     Uses 12-month feature windows, 3-month prediction windows, 1-month step.
-    Walk-forward: 5 chronological folds, train on past, validate on future.
-    Final production models trained on ALL data.
+    Walk-forward: 5 chronological folds, train on past, validate on future,
+    with a PURGE_MONTHS gap so no training label window can overlap any
+    validation feature window.  Label tiers use a High threshold frozen from
+    each fold's training pool only (never from validation data).
+
+    Two naive baselines (majority class, persistence) are evaluated on the
+    same folds so model skill is measurable against something.
+
+    Final production models are trained on ALL samples with a threshold
+    frozen from all of them; that threshold is persisted alongside metrics
+    and reused for map colouring / CLI predictions.
     """
+    from sklearn.metrics import f1_score
+
     outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
     log.info("Training models on %d outage records...", len(outages))
 
-    # Build sliding-window training samples
+    # Build sliding-window training samples (unlabelled)
     samples = build_training_samples(outages)
     if samples.empty:
         log.error("No training samples generated — check data range")
@@ -632,16 +752,21 @@ def _train_and_save():
     fold_edges = np.array_split(np.arange(len(cutoff_dates)), n_folds)
     fold_cutoffs = [cutoff_dates[edges[-1]] for edges in fold_edges]
 
-    log.info("Walk-forward validation with %d folds", n_folds)
+    log.info("Purged walk-forward validation with %d folds (purge=%d months)",
+             n_folds, PURGE_MONTHS)
     log.info("Cutoff dates range: %s to %s", cutoff_dates[0], cutoff_dates[-1])
 
     # Walk-forward: train on folds 0..k-1, validate on fold k
     rf_metrics = []
     xgb_metrics = []
+    majority_metrics = []
+    persistence_metrics = []
+    fold_thresholds = []
 
     for k in range(1, n_folds):
-        train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1]
-        val_mask = (samples["cutoff_date"] > fold_cutoffs[k - 1]) & \
+        val_boundary = fold_cutoffs[k - 1]
+        train_mask = samples["cutoff_date"] <= val_boundary - pd.DateOffset(months=PURGE_MONTHS)
+        val_mask = (samples["cutoff_date"] > val_boundary) & \
                    (samples["cutoff_date"] <= fold_cutoffs[k])
 
         train_data = samples[train_mask]
@@ -650,11 +775,26 @@ def _train_and_save():
         if train_data.empty or val_data.empty:
             continue
 
-        X_train, y_train = get_xy(train_data)
-        X_val, y_val = get_xy(val_data)
+        # Freeze label threshold on TRAIN ONLY, apply identically to both
+        thr = freeze_high_threshold(train_data)
+        train_labeled = apply_risk_labels(train_data, thr)
+        val_labeled = apply_risk_labels(val_data, thr)
+        fold_thresholds.append({"fold": k, "high_threshold": thr})
+        log.info("Fold %d: train=%d, val=%d (split at %s, purge until %s), High threshold=%.1f",
+                 k, len(train_data), len(val_data), val_boundary,
+                 val_boundary - pd.DateOffset(months=PURGE_MONTHS), thr)
 
-        log.info("Fold %d: train=%d, val=%d (split at %s)",
-                 k, len(train_data), len(val_data), fold_cutoffs[k - 1])
+        X_train, y_train = get_xy(train_labeled)
+        X_val, y_val = get_xy(val_labeled)
+
+        # Baselines on the same validation set
+        maj_pred = majority_class_predictions(train_labeled["risk_level"], len(val_labeled))
+        pers_pred = persistence_predictions(val_labeled, thr)
+        maj_f1 = f1_score(y_val, maj_pred, labels=RISK_LABELS, average="macro", zero_division=0)
+        pers_f1 = f1_score(y_val, pers_pred, labels=RISK_LABELS, average="macro", zero_division=0)
+        majority_metrics.append({"fold": k, "f1_macro": float(maj_f1)})
+        persistence_metrics.append({"fold": k, "f1_macro": float(pers_f1)})
+        log.info("Fold %d baselines: majority F1=%.3f, persistence F1=%.3f", k, maj_f1, pers_f1)
 
         # RF
         rf = train_random_forest(X_train, y_train)
@@ -665,6 +805,7 @@ def _train_and_save():
             "f1_macro": rf_result["f1_macro"],
             "precision_macro": rf_result["precision_macro"],
             "recall_macro": rf_result["recall_macro"],
+            "high_threshold": thr,
         })
 
         # XGBoost
@@ -676,36 +817,53 @@ def _train_and_save():
             "f1_macro": xgb_result["f1_macro"],
             "precision_macro": xgb_result["precision_macro"],
             "recall_macro": xgb_result["recall_macro"],
+            "high_threshold": thr,
         })
 
     # Log average metrics
+    def _mean(metrics, key):
+        vals = [m[key] for m in metrics]
+        return (float(np.mean(vals)), float(np.std(vals))) if vals else (None, None)
+
     if rf_metrics:
-        rf_acc = [m["accuracy"] for m in rf_metrics]
-        rf_f1 = [m["f1_macro"] for m in rf_metrics]
-        log.info("Walk-forward RF accuracy: %.3f ± %.3f, F1: %.3f ± %.3f",
-                 np.mean(rf_acc), np.std(rf_acc), np.mean(rf_f1), np.std(rf_f1))
+        acc_m, acc_s = _mean(rf_metrics, "accuracy")
+        f1_m, f1_s = _mean(rf_metrics, "f1_macro")
+        log.info("Walk-forward RF accuracy: %.3f ± %.3f, F1: %.3f ± %.3f", acc_m, acc_s, f1_m, f1_s)
     if xgb_metrics:
-        xgb_acc = [m["accuracy"] for m in xgb_metrics]
-        xgb_f1 = [m["f1_macro"] for m in xgb_metrics]
-        log.info("Walk-forward XGB accuracy: %.3f ± %.3f, F1: %.3f ± %.3f",
-                 np.mean(xgb_acc), np.std(xgb_acc), np.mean(xgb_f1), np.std(xgb_f1))
+        acc_m, acc_s = _mean(xgb_metrics, "accuracy")
+        f1_m, f1_s = _mean(xgb_metrics, "f1_macro")
+        log.info("Walk-forward XGB accuracy: %.3f ± %.3f, F1: %.3f ± %.3f", acc_m, acc_s, f1_m, f1_s)
+    if persistence_metrics:
+        pm, _ = _mean(persistence_metrics, "f1_macro")
+        mm, _ = _mean(majority_metrics, "f1_macro")
+        log.info("Baselines F1(mean): persistence=%.3f, majority=%.3f", pm, mm)
 
     # Persist metrics to JSON
     import json
     metrics_path = MODELS_DIR / "accuracy_metrics.json"
     metrics_data = {
+        "method": "purged expanding-window walk-forward (5 folds, "
+                  f"{PURGE_MONTHS}-month purge, frozen High threshold)",
         "random_forest": rf_metrics,
         "xgboost": xgb_metrics,
-        "rf_mean_accuracy": float(np.mean([m["accuracy"] for m in rf_metrics])) if rf_metrics else None,
-        "rf_mean_f1": float(np.mean([m["f1_macro"] for m in rf_metrics])) if rf_metrics else None,
-        "xgb_mean_accuracy": float(np.mean([m["accuracy"] for m in xgb_metrics])) if xgb_metrics else None,
-        "xgb_mean_f1": float(np.mean([m["f1_macro"] for m in xgb_metrics])) if xgb_metrics else None,
+        "baselines_majority": majority_metrics,
+        "baselines_persistence": persistence_metrics,
+        "fold_thresholds": fold_thresholds,
+        "rf_mean_accuracy": _mean(rf_metrics, "accuracy")[0],
+        "rf_mean_f1": _mean(rf_metrics, "f1_macro")[0],
+        "xgb_mean_accuracy": _mean(xgb_metrics, "accuracy")[0],
+        "xgb_mean_f1": _mean(xgb_metrics, "f1_macro")[0],
+        "majority_mean_f1": _mean(majority_metrics, "f1_macro")[0],
+        "persistence_mean_f1": _mean(persistence_metrics, "f1_macro")[0],
     }
     metrics_path.write_text(json.dumps(metrics_data, indent=2))
     log.info("Metrics saved to %s", metrics_path)
 
-    # Train final production models on ALL data
-    log.info("Training final production models on all %d samples...", len(samples))
+    # Train final production models on ALL data (threshold frozen likewise)
+    high_threshold = freeze_high_threshold(samples)
+    samples = apply_risk_labels(samples, high_threshold)
+    log.info("Training final production models on all %d samples (High threshold=%.1f)...",
+             len(samples), high_threshold)
     X_all, y_all = get_xy(samples)
 
     rf_model = train_random_forest(X_all, y_all)
@@ -716,11 +874,15 @@ def _train_and_save():
 
     save_models(rf_model, xgb_model, xgb_le)
 
-    # Save predictions for the full grid (not just the last sliding window)
+    # Record the production threshold next to the metrics
+    metrics_data["production_high_threshold"] = high_threshold
+    metrics_path.write_text(json.dumps(metrics_data, indent=2))
+
+    # Save predictions for the full grid (not just the last sliding window),
+    # using the SAME frozen threshold so map colours match training semantics
     log.info("Building full grid features for prediction CSV...")
-    outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
     full_features = build_grid_features(outages)
-    full_features = assign_risk_labels(full_features)
+    full_features = assign_risk_labels(full_features, high_threshold=high_threshold)
     has_data = full_features[FEATURE_COLS].sum(axis=1) > 0
     full_features = full_features[has_data]
 
@@ -739,14 +901,29 @@ def _train_and_save():
 def main():
     parser = argparse.ArgumentParser(description="Geospatial risk model for unplanned outages.")
     parser.add_argument("--predict", action="store_true", help="Load models and predict all cells.")
-    parser.add_argument("--evaluate", action="store_true", help="Evaluate models only.")
+    parser.add_argument("--evaluate", action="store_true",
+                        help="Print saved walk-forward metrics (no retraining).")
     args = parser.parse_args()
+
+    if args.evaluate:
+        import json
+        metrics_path = MODELS_DIR / "accuracy_metrics.json"
+        if not metrics_path.exists():
+            log.error("No metrics file found — train first (python risk_model.py)")
+            return
+        data = json.loads(metrics_path.read_text())
+        log.info("Method: %s", data.get("method", "n/a"))
+        for key in ["rf_mean_accuracy", "rf_mean_f1", "xgb_mean_accuracy", "xgb_mean_f1",
+                    "majority_mean_f1", "persistence_mean_f1", "production_high_threshold"]:
+            log.info("%s: %s", key, data.get(key))
+        return
 
     if args.predict:
         rf_model, xgb_model, xgb_le = load_models()
         outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
         features = build_grid_features(outages)
-        features = assign_risk_labels(features)
+        # Reuse the production threshold so labels keep one consistent meaning
+        features = assign_risk_labels(features, high_threshold=load_frozen_threshold())
 
         # Only keep cells with actual outage data
         has_data = features[FEATURE_COLS].sum(axis=1) > 0

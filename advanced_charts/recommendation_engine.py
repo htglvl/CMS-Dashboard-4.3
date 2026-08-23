@@ -7,8 +7,6 @@ for EV charging station placement and grid resilience investment.
 
 Features:
 * Template-based natural language generation (no LLM dependency).
-* Optional LLM integration when OPENAI_API_KEY or ANTHROPIC_API_KEY
-  is set in the environment.
 * Cross-references risk predictions with community building locations.
 * Generates ranked investment priorities.
 
@@ -17,18 +15,15 @@ Usage as library::
     from advanced_charts.recommendation_engine import RecommendationEngine
     engine = RecommendationEngine(predictions, outages, charging_sites)
     insights = engine.generate_all_insights()
-    answer = engine.ask("Where should we put new chargers?")
 
 Usage standalone::
 
     python recommendation_engine.py              # Generate full report
-    python recommendation_engine.py --ask "..."  # Ask a question
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import urllib.request
 import json
 from dataclasses import dataclass, field
@@ -510,106 +505,8 @@ class RecommendationEngine:
         return df
 
     # ------------------------------------------------------------------
-    # Natural language interface
+    # Summary answer (used by generate_all_insights)
     # ------------------------------------------------------------------
-
-    def ask(self, question: str) -> str:
-        """Answer a natural language question about risk and recommendations.
-
-        Uses template-based NLG by default.  If an LLM API key is set,
-        the structured context is sent to the LLM for richer answers.
-        """
-        q = question.lower().strip()
-
-        # Try LLM first
-        llm_answer = self._try_llm(question)
-        if llm_answer:
-            return llm_answer
-
-        # Template-based fallback
-        if any(w in q for w in ["highest risk", "most risk", "worst area", "riskiest"]):
-            return self._answer_highest_risk()
-        if any(w in q for w in ["charger", "charging station", "where to put", "deploy", "v2x"]):
-            return self._answer_charger_placement()
-        if any(w in q for w in ["winter", "cold", "storm"]):
-            return self._answer_winter_risk()
-        if any(w in q for w in ["community", "village hall", "building"]):
-            return self._answer_community()
-        if any(w in q for w in ["investment", "priority", "rank", "budget"]):
-            return self._answer_investment()
-        if any(w in q for w in ["summary", "overview", "report"]):
-            return self._answer_summary()
-
-        return (
-            "I can help with questions about outage risk, charging station placement, "
-            "community impact, and investment priorities. Try asking:\n"
-            "• \"What areas are highest risk?\"\n"
-            "• \"Where should we put new chargers?\"\n"
-            "• \"What's the winter risk?\"\n"
-            "• \"Show investment priorities\""
-        )
-
-    def _answer_highest_risk(self) -> str:
-        high = self.predictions[self.predictions["risk_level"] == "High"].nlargest(5, "confidence")
-        if high.empty:
-            return "No high-risk areas identified in the current predictions."
-        lines = ["**Top 5 highest-risk grid cells:**\n"]
-        for i, (_, cell) in enumerate(high.iterrows(), 1):
-            lines.append(
-                f"{i}. ({cell['lat']:.4f}, {cell['lon']:.4f}) — "
-                f"Confidence: {cell['confidence']:.0%}, "
-                f"P(High): {cell.get('prob_high', 0):.0%}"
-            )
-        return "\n".join(lines)
-
-    def _answer_charger_placement(self) -> str:
-        recs = self.charging_station_recommendations()
-        if not recs:
-            return "No urgent V2X deployment gaps identified."
-        lines = ["**Recommended V2X deployment locations:**\n"]
-        for i, rec in enumerate(recs[:5], 1):
-            lines.append(f"{i}. {rec.title}\n   {rec.detail}")
-        return "\n".join(lines)
-
-    def _answer_winter_risk(self) -> str:
-        if self.outages.empty or "season" not in self.outages.columns:
-            return "No seasonal data available."
-        winter = self.outages[self.outages["season"] == "Winter"]
-        total = len(self.outages)
-        pct = len(winter) / total * 100 if total > 0 else 0
-        avg_dur = pd.to_numeric(winter["duration-hours"], errors="coerce").mean()
-        return (
-            f"**Winter Risk Assessment:**\n\n"
-            f"• {len(winter)} winter outages ({pct:.0f}% of all outages)\n"
-            f"• Average winter outage duration: {avg_dur:.1f} hours\n"
-            f"• Winter outages tend to be longer and affect more customers due to "
-            f"severe weather conditions.\n\n"
-            f"Recommendation: Prioritise V2X deployment in areas with >40% winter outage ratio."
-        )
-
-    def _answer_community(self) -> str:
-        if self.community_buildings.empty:
-            return "No community buildings identified in the dataset."
-        lines = [f"**Community Building Risk Assessment:** ({len(self.community_buildings)} buildings found)\n"]
-        for _, b in self.community_buildings.iterrows():
-            name = b["charge_point_location"]
-            cat = b.get("site_category", "Unknown")
-            lines.append(f"• {name} — {cat}")
-        return "\n".join(lines)
-
-    def _answer_investment(self) -> str:
-        ranking = self.investment_priority_ranking()
-        if ranking.empty:
-            return "No investment data available."
-        lines = ["**Top 5 Investment Priorities:**\n"]
-        for i, (_, row) in enumerate(ranking.head(5).iterrows(), 1):
-            lines.append(
-                f"{i}. {row['site_name']} (Score: {row['composite_score']:.3f})\n"
-                f"   Risk: {row['risk_level']}, "
-                f"Nearby outages: {row['nearby_outages']}, "
-                f"Hours lost: {row['nearby_hours']}"
-            )
-        return "\n".join(lines)
 
     def _answer_summary(self) -> str:
         total_cells = len(self.predictions)
@@ -627,142 +524,6 @@ class RecommendationEngine:
             f"• Historic outages used: {total_outages:,}\n"
             f"• Community buildings tracked: {len(self.community_buildings)}"
         )
-
-    # ------------------------------------------------------------------
-    # LLM integration (optional)
-    # ------------------------------------------------------------------
-
-    def _try_llm(self, question: str) -> str | None:
-        """Attempt to answer via an LLM API if credentials are available."""
-        xiaomi_key = os.environ.get("XIAOMI_API_KEY", "").strip()
-        openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-
-        # Priority: XIAOMI_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY
-        if xiaomi_key:
-            return self._call_xiaomi(xiaomi_key, self._build_llm_context(), question)
-        if openai_key:
-            return self._call_openai(openai_key, self._build_llm_context(), question)
-        if anthropic_key:
-            return self._call_anthropic(anthropic_key, self._build_llm_context(), question)
-        return None
-
-    def _build_llm_context(self) -> str:
-        """Build structured context string for the LLM."""
-        parts = []
-
-        # Risk summary
-        total = len(self.predictions)
-        if total > 0:
-            high = len(self.predictions[self.predictions["risk_level"] == "High"])
-            parts.append(f"RISK MODEL: {total} grid cells analysed. {high} classified as High risk.")
-
-        # Top outages
-        if not self.outages.empty:
-            parts.append(f"HISTORIC OUTAGES: {len(self.outages)} records.")
-            if "district_name" in self.outages.columns:
-                top_district = self.outages["district_name"].value_counts().head(3)
-                parts.append(f"Top districts: {top_district.to_dict()}")
-
-        # Community buildings
-        if not self.community_buildings.empty:
-            names = self.community_buildings["charge_point_location"].tolist()
-            parts.append(f"COMMUNITY BUILDINGS: {len(names)} — {', '.join(names[:5])}")
-
-        # Charging sites
-        if not self.charging_sites.empty:
-            v2x = len(self.charging_sites[self.charging_sites["site_category"] == "V2X Chargepoint"])
-            parts.append(f"CHARGING SITES: {len(self.charging_sites)} total, {v2x} V2X.")
-
-        return "\n".join(parts)
-
-    def _call_openai(self, api_key: str, context: str, question: str) -> str | None:
-        try:
-            import requests
-            resp = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": [
-                        {"role": "system", "content": (
-                            "You are a grid resilience analyst for Electricity North West. "
-                            "Answer questions about outage risk, EV charging deployment, "
-                            "and community impact using the provided data context. "
-                            "Be concise and actionable."
-                        )},
-                        {"role": "user", "content": f"DATA CONTEXT:\n{context}\n\nQUESTION: {question}"},
-                    ],
-                    "max_tokens": 500,
-                    "temperature": 0.3,
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as exc:
-            log.warning("OpenAI call failed: %s", exc)
-            return None
-
-    def _call_anthropic(self, api_key: str, context: str, question: str) -> str | None:
-        try:
-            import requests
-            resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-3-5-haiku-20241022",
-                    "max_tokens": 500,
-                    "messages": [
-                        {"role": "user", "content": (
-                            f"You are a grid resilience analyst for Electricity North West.\n\n"
-                            f"DATA CONTEXT:\n{context}\n\nQUESTION: {question}"
-                        )},
-                    ],
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
-        except Exception as exc:
-            log.warning("Anthropic call failed: %s", exc)
-            return None
-
-    def _call_xiaomi(self, api_key: str, context: str, question: str) -> str | None:
-        """Call Xiaomi LLM API."""
-        try:
-            import requests
-            resp = requests.post(
-                "https://api.xiaomi.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "xiaomi-chat",
-                    "messages": [
-                        {"role": "system", "content": (
-                            "You are a grid resilience analyst for Electricity North West. "
-                            "Answer questions about outage risk, EV charging deployment, "
-                            "and community impact using the provided data context. "
-                            "Be concise and actionable."
-                        )},
-                        {"role": "user", "content": f"DATA CONTEXT:\n{context}\n\nQUESTION: {question}"},
-                    ],
-                    "max_tokens": 500,
-                    "temperature": 0.3,
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as exc:
-            log.warning("Xiaomi API call failed: %s", exc)
-            return None
 
     # ------------------------------------------------------------------
     # Full report
@@ -836,8 +597,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Business recommendation engine.")
-    parser.add_argument("--ask", type=str, help="Ask a natural language question.")
-    args = parser.parse_args()
+    parser.parse_args()
 
     # Load data
     from advanced_charts.risk_model import load_models, predict_cells, build_grid_features, assign_risk_labels, FEATURE_COLS
@@ -853,15 +613,12 @@ def main():
 
     engine = RecommendationEngine(predictions, outages, charging_sites)
 
-    if args.ask:
-        print(engine.ask(args.ask))
-    else:
-        report = engine.generate_all_insights()
-        print(report.summary)
-        print("\n" + "=" * 60)
-        for rec in report.recommendations[:10]:
-            print(f"\n[{rec.priority}] {rec.category}: {rec.title}")
-            print(f"  {rec.detail}")
+    report = engine.generate_all_insights()
+    print(report.summary)
+    print("\n" + "=" * 60)
+    for rec in report.recommendations[:10]:
+        print(f"\n[{rec.priority}] {rec.category}: {rec.title}")
+        print(f"  {rec.detail}")
 
 
 if __name__ == "__main__":

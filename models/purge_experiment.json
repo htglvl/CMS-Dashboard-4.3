@@ -1,0 +1,47 @@
+{
+  "description": "Purge effect + memorisation gauge, val = last fold",
+  "t_train": "2021-04-01 00:00:00+00:00",
+  "purge_end": "2020-01-01 00:00:00+00:00",
+  "leak_horizon": "2022-07-01 00:00:00+00:00",
+  "n_val": 91249,
+  "n_near": 20850,
+  "n_far": 70399,
+  "arms": {
+    "rf_nopurge": {
+      "f1_val_full": 0.6226809598656571,
+      "f1_val_near_possible_leak": 0.6361859974285594,
+      "f1_val_far_overlap_free": 0.6186749374705448,
+      "f1_train_subsample_200k": 0.6666023864831065,
+      "accuracy_val_full": 0.6473166829225526,
+      "n_train_used": 408610,
+      "seconds": 42.1
+    },
+    "xgb_nopurge": {
+      "f1_val_full": 0.6184863752369055,
+      "f1_val_near_possible_leak": 0.6298033361061335,
+      "f1_val_far_overlap_free": 0.6151218072312337,
+      "f1_train_subsample_200k": 0.7148223407563233,
+      "accuracy_val_full": 0.6403577025501649,
+      "n_train_used": 408610,
+      "seconds": 54.8
+    },
+    "rf_purge15": {
+      "f1_val_full": 0.6215383888307332,
+      "f1_val_near_possible_leak": 0.6338678254180409,
+      "f1_val_far_overlap_free": 0.6178784674964225,
+      "f1_train_subsample_200k": 0.6694549942885503,
+      "accuracy_val_full": 0.6455961161218206,
+      "n_train_used": 387241,
+      "seconds": 37.5
+    },
+    "xgb_purge15": {
+      "f1_val_full": 0.6178852727175924,
+      "f1_val_near_possible_leak": 0.6293790330644011,
+      "f1_val_far_overlap_free": 0.6144675935078584,
+      "f1_train_subsample_200k": 0.7194108480548803,
+      "accuracy_val_full": 0.6391850869598571,
+      "n_train_used": 387241,
+      "seconds": 46.0
+    }
+  }
+}

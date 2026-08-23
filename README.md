@@ -35,7 +35,9 @@ An interactive dashboard for analysing unplanned power outages across the Electr
 2. **Edit `.env`** with your API keys:
    ```
    ENW_API_KEY=your_api_key_here
-   XIAOMI_API_KEY=your_api_key_here
+   CMS_API_BASE_URL=https://api.xiaomimimo.com/v1
+   CMS_API_KEY=your_api_key_here
+   CMS_API_MODEL=mimo-v2.5
    ```
 
 3. **Run the dashboard:**

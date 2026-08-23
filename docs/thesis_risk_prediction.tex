@@ -1,0 +1,135 @@
+% =====================================================================
+% Rewritten section: Geospatial Risk Prediction
+% Narrative flow: raw data -> samples -> labels -> validation -> models
+%                 -> results -> deployment, justifying each decision at
+%                 the point where a naive approach failed.
+% NOTE: two claims were aligned with the actual codebase (see comments
+% marked TODO-VERIFY): hyperparameter selection procedure, and primary
+% metric (macro F1 instead of weighted F1).
+% =====================================================================
+
+\section{Geospatial Risk Prediction}
+\label{sec:risk_prediction}
+%Feature normalization was not applied, as tree-based models (Random Forest, XGBoost) make decisions based on feature thresholds rather than distances, and are therefore invariant to feature scaling \cite{breiman2001random}.
+
+The geospatial risk prediction module classifies each grid cell into one of three risk levels (Low, Medium, High) based on historical outage patterns. This section follows the data end-to-end --- from raw outage records, through sample construction and labelling, to the validation protocol and final deployment --- because most design decisions in this module were driven by one recurring concern: the data is a time series, and naively treating it as an independent collection of rows produces misleadingly optimistic models.
+
+\subsection{Problem Formulation}
+
+The task is formulated as supervised multi-class classification. The unit of prediction is deliberately \emph{not} an individual outage record: predicting individual faults is dominated by unpredictable triggers (weather, equipment failure, third-party damage). Instead, the unit is a \emph{grid cell observed at a monthly decision date}. For each such cell--date pair, the model receives 13 features summarising the preceding 12 months of outage activity (Section~\ref{sec:features_risk}) and must predict how many outages that cell will experience in the following 3 months, bucketed into Low, Medium, or High risk. Because the feature window ends exactly where the prediction window begins, the two never share information by construction, and the learned mapping can be applied at any date whose outcome is still unknown.
+
+Three risk categories were chosen over two or more as a balance between granularity and statistical power. Binary classification (risk vs.\ no-risk) collapses distinctions that matter operationally: a site with occasional outages requires different attention from one with none or with frequent ones. More than three categories would thin the per-class sample sizes below what the moderate class imbalance supports. Three categories also align with CMS decision-making: Low-risk sites need no action, Medium-risk sites warrant monitoring, and High-risk sites justify priority V2X investment.
+
+\subsection{Training Data Construction}
+
+The study area is divided into approximately 2~km grid cells (Section~\ref{sec:features_risk}), yielding 3{,}355 cells that recorded at least one outage between 2000 and 2026. Training examples are generated with a sliding-window design: a feature window of 12 months followed immediately by a 3-month label window, advancing in 1-month steps. Each advance defines one \emph{cutoff date}; for example, a cell whose features summarise January--December 2020 and whose label counts outages in January--March 2021 forms one sample at cutoff 2020-01.
+
+Because the earliest cutoff requires a full year of history and the latest requires 3 months of future labels, the cutoffs span January 2001 to May 2026 --- 305 monthly decision dates. Each date contributes one sample per currently-active cell, producing 499,859 samples in total. Note that a single outage record is reused heavily: it enters the feature aggregates of up to 12 subsequent cutoffs and the label counts of 3. This reuse is what allows roughly 311{,}000 records to feed half a million samples, and --- as Section~\ref{sec:walkforward} explains --- it is also precisely why the train/test separation required an explicit safeguard.
+
+Cells with no outage activity in their feature window are excluded, since a cell with an entirely empty 12-month history carries no information to learn from, and at prediction time such cells are simply absent from the dashboard rather than shown a meaningless ``Low'' score. The exclusion applies identically at training and inference, so the model is never asked to score inputs outside its training distribution.
+
+\subsection{Labelling: Frozen Risk Thresholds}
+\label{sec:frozen_labels}
+
+Labels are assigned by tiering the future outage count: cells with zero upcoming outages are labelled Low. An early implementation binned the remaining counts at the 67th percentile \emph{computed within each monthly window separately}. This was rejected on inspection: the boundary would drift from month to month, so the same cell with five upcoming outages could be labelled Medium in one window and High in the next depending on that window's distribution. A label whose meaning changes over time is a moving target --- part of the observed error is definitional noise that no model can learn away, and the threshold itself would silently depend on future data.
+
+Instead, a single threshold $T$ is \emph{frozen}: the 67th percentile of non-zero future counts, computed once from the training pool only and applied unchanged to every window in that experiment (validation included). During validation $T$ is re-frozen inside each fold from that fold's training data (Section~\ref{sec:walkforward}), keeping the definition strictly free of validation information; for the deployed model, trained on all data, $T = 3$. The static map colouring described in Section~\ref{sec:risk_heatmap} uses the same frozen boundary, so ``High'' means the same thing everywhere in the system.
+
+\subsection{Validation Protocol: Purged Expanding-Window Walk-Forward}
+\label{sec:walkforward}
+
+\subsubsection{Why a Random Split Is Invalid Here}
+
+The samples are strongly dependent in both space and time: the same cell appears at ~305 cutoffs, and neighbouring months share most of their outage history. A random train/test split would therefore place near-duplicate rows on both sides of the split and report accuracy close to memorisation. Worse, because each outage record feeds up to 15 different samples, answers from the test period can literally appear inside training inputs. Validation must instead respect chronology: always test on a period strictly after the training period, simulating real deployment.
+
+\subsubsection{Mechanics}
+
+Walk-forward validation divides the 305 cutoffs into 5 chronological folds of 61 (~5 years each). For fold $k$, a fresh model is trained on all cutoffs before fold $k$'s start and evaluated on fold $k$ itself; fold~0 serves only as initial training material. This yields four independent performance estimates covering four different eras, reported as mean $\pm$ standard deviation. Table~\ref{tab:wf_folds} shows the exact split sizes.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Purged walk-forward splits (production run, August 2026).}
+    \label{tab:wf_folds}
+    \begin{tabular}{llrrr}
+        \toprule
+        \textbf{Fold} & \textbf{Test period} & \textbf{Train cutoffs end} & \textbf{Train rows} & \textbf{Test rows} \\
+        \midrule
+        1 & Feb 2006 -- Feb 2011 & Oct 2004 & 84{,}741  & 104{,}779 \\
+        2 & Mar 2011 -- Mar 2016 & Nov 2009 & 196{,}297 & 99{,}053  \\
+        3 & Apr 2016 -- Apr 2021 & Dec 2014 & 296{,}344 & 88{,}992  \\
+        4 & May 2021 -- May 2026 & Jan 2020 & 387{,}241 & 91{,}249  \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{The 15-Month Purge}
+
+Chronological ordering alone is not sufficient here. Consider a training sample at cutoff March 2021: its label counts outages through June 2021. A validation sample at cutoff January 2022 derives its features from the twelve months before it --- including those same outages. The model would have memorised events as \emph{answers} during training and then met them again as \emph{inputs} at test time. Formally, a training label window $[C,\,C{+}3)$ overlaps a validation feature window $[V{-}12,\,V)$ whenever $V < C + 15$: the safe gap equals the feature window plus the prediction horizon. Every training sample whose cutoff falls within 15 months of the validation boundary is therefore discarded (for fold 4 this removes 21,369 rows, roughly 5\%). Empirically the purge cost less than 0.002 macro-F1 --- the leaked channel was carrying almost no information --- but it removes the concern entirely and makes the protocol defensible under review.
+
+\subsubsection{Why All History Is Kept (Expanding Window)}
+
+An expanding window trains each fold on \emph{all} preceding data. The obvious objection is that the older era (2000--2009) differs from today --- the network footprint has shrunk by roughly 28\%, contributing 43\% of all samples. Two alternatives were therefore tested against the identical, most recent validation period (May 2021 -- May 2026): a rolling window restricted to the last 10 years, and recency-weighted training (exponential decay, 5-year half-life). Both performed marginally \emph{worse} than the expanding window (macro-F1 0.6136--0.6219 versus 0.6185--0.6227 across the two models). The explanation is that although total outage counts declined by around 30\%, the \emph{per-cell} rate remained essentially flat (~4 outages per cell over 5 years throughout), so historical samples still transfer while contributing variance reduction. The expanding design was retained accordingly --- and, importantly, the same design is used when the production model retrains on refreshed data, so validation faithfully reflects deployment behaviour.
+
+\subsubsection{What Cross-Validation Estimates, and How the Final Model Relates}
+
+The four fold models exist to measure the \emph{procedure} (features, labels, hyperparameters, splitting), not to be deployed. The deployed model is retrained on all 499,859 samples after validation to use every available observation, mirroring the automatic retraining that keeps predictions current as new outage data arrives. The deployed model itself is never scored on data it has seen; its generalisation claim is inherited from the four fold models, which differ from it only in having seen less data. Two further checks support this claim: training-set F1 reaches only 0.67 (Random Forest) and 0.71 (XGBoost) against 0.62 on unseen data, indicating the models fit genuine structure rather than memorising; and per-fold scores are stable across four different eras (Table~\ref{tab:risk_results}), indicating no material temporal drift in the learned relationship.
+
+\subsection{Models, Class Imbalance, and Hyperparameters}
+
+Two tree-based ensembles were selected: Random Forest for explainability (feature importances) and XGBoost for accuracy, both strong on tabular data \cite{shwartz-ziv_tabular_2022}. Tree thresholds are invariant to feature scaling \cite{breiman2001random}, so no normalisation is applied. The training data is moderately imbalanced (~51\% Low, 33\% Medium, 16\% High). Imbalance is handled inside the loss function: Random Forest uses \texttt{class\_weight="balanced"}, and XGBoost applies balanced weights as sample weights via \texttt{compute\_class\_weight}. SMOTE oversampling \cite{chawla_smote_2002} was evaluated as an alternative and did not improve macro-F1 (Appendix~X). The frozen-threshold labelling (Section~\ref{sec:frozen_labels}) complements these by construction, since binning at the 67th percentile of non-zero counts keeps the three classes in comparable proportions.
+
+Hyperparameters were selected by comparing a predefined grid of configurations (varying ensemble size, tree depth, regularisation, and balancing strategy) under the same purged walk-forward protocol, selecting on macro-F1; the full comparison appears in Appendix~X. % TODO-VERIFY: original draft said "grid search with 3-fold CV on the training fold"; the repository implements config comparison under the shared walk-forward protocol. Adjust if a separate inner-grid search was genuinely performed.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Selected hyperparameters for Random Forest and XGBoost.}
+    \label{tab:hyperparameters}
+    \begin{tabular}{p{4cm}p{3.5cm}p{3cm}}
+        \toprule
+        \textbf{Hyperparameter} & \textbf{Random Forest} & \textbf{XGBoost} \\
+        \midrule
+        n\_estimators & 200 & 500 \\
+        max\_depth & 12 & 10 \\
+        min\_samples\_split & 5 & --- \\
+        min\_samples\_leaf & 2 & --- \\
+        learning\_rate & --- & 0.03 \\
+        subsample & --- & 0.7 \\
+        colsample\_bytree & --- & 0.7 \\
+        min\_child\_weight & --- & 1 \\
+        gamma & --- & 0.2 \\
+        reg\_alpha & --- & 0.1 \\
+        reg\_lambda & --- & 1.0 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Both models train efficiently on CPU without GPU acceleration --- a practical constraint, as the platform runs on a single laptop alongside other services. Retraining completes in minutes, enabling the continuous pipeline that refreshes risk predictions whenever new outage data is ingested, without disrupting the dashboard or OpenClaw interface.
+
+\subsection{Results Against Naive Baselines}
+
+Skill must be measured relative to something. Two naive baselines are therefore evaluated on the identical validation folds: a \emph{majority-class} predictor (always predict the most frequent training class) and a \emph{persistence} predictor (assume a cell's current activity tier persists). Persistence is the critical reference: because outages autocorrelate strongly, a model could score well purely by echoing recent activity.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Walk-forward performance (mean $\pm$ std over 4 folds). Macro-averaging treats all classes equally, which matters given the 16\% prevalence of the operationally critical High class; weighted metrics are reported alongside.}
+    \label{tab:risk_results}
+    \begin{tabular}{lcccc}
+        \toprule
+         & \textbf{Accuracy} & \textbf{Precision (macro)} & \textbf{Recall (macro)} & \textbf{F1 (macro)} \\
+        \midrule
+        Majority-class baseline & --- & --- & --- & 0.226 \\
+        Persistence baseline    & --- & --- & --- & 0.248 \\
+        Random Forest           & 0.656 $\pm$ 0.006 & 0.604 & 0.662 & \textbf{0.622 $\pm$ 0.001} \\
+        XGBoost                 & 0.652 $\pm$ 0.010 & 0.601 & 0.656 & 0.619 $\pm$ 0.004 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Both models achieve roughly 2.5$\times$ the persistence baseline, demonstrating skill well beyond simple autocorrelation --- most notably the ability to anticipate \emph{quiet} periods, which persistence cannot express by construction. Macro-F1 is treated as the primary metric for model comparison because equal weight per class matches the operational cost structure; accuracy and weighted F1 are reported for completeness. % TODO-VERIFY: original draft named weighted F1 as primary; switched to macro F1 for consistency with the imbalance rationale above.
+
+\subsection{Model Output and Risk Heatmap}
+\label{sec:risk_heatmap}
+
+The model outputs a probability distribution over the three classes (P(Low), P(Medium), P(High)): for Random Forest, the proportion of trees voting for each class; for XGBoost, softmax-normalised gradient scores. The predicted level is the argmax class, and the confidence score is its probability. These outputs are saved to prediction CSVs and consumed by the recommendation engine, the risk heatmap layer, and the OpenClaw conversational interface; users can switch between Random Forest and XGBoost predictions from the dashboard sidebar.
+
+On the map, each grid cell is rendered as a coloured rectangle --- green, yellow, or red by predicted level --- with opacity proportional to confidence, so uncertain predictions appear fainter. Cells below a configurable confidence threshold (default 0.7) are hidden by default, ensuring only confident predictions are displayed.

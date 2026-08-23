@@ -63,7 +63,7 @@ echo.
 echo      Created .env from template.
 echo      Please edit .env and add your API keys:
 echo        - ENW_API_KEY (get from https://electricitynorthwest.opendatasoft.com/)
-echo        - XIAOMI_API_KEY or OPENAI_API_KEY (for AI features)
+echo        - CMS_API_KEY + CMS_API_BASE_URL (Xiaomi MiMo billing, for AI features)
 echo.
 echo      Press any key to open .env for editing...
 pause >nul
@@ -76,7 +76,8 @@ goto :env_done
 :env_create_minimal
 echo WARNING: .env.example not found. Creating minimal .env...
 echo ENW_API_KEY=your_api_key_here> .env
-echo XIAOMI_API_KEY=your_api_key_here>> .env
+echo CMS_API_BASE_URL=https://api.xiaomimimo.com/v1>> .env
+echo CMS_API_KEY=your_api_key_here>> .env
 echo      Please edit .env with your API keys later.
 
 :env_done

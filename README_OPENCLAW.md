@@ -21,7 +21,7 @@ An AI agent accessible via WebChat that can:
 - **Node.js 22+** — https://nodejs.org/
 - **OpenClaw** — `npm install -g openclaw@latest`
 - **Python 3.12+** — with venv activated
-- **API key** — Set `XIAOMI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` in `.env`
+- **API key** — Set `CMS_API_KEY` (Xiaomi MiMo billing token) and `CMS_API_BASE_URL` in `.env`; `run_dashboard.bat` syncs both into `~/.openclaw/openclaw.json` on every start
 
 ---
 

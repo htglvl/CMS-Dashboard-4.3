@@ -37,7 +37,10 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
 
 from advanced_charts.risk_model import (
+    PURGE_MONTHS,
+    apply_risk_labels,
     build_training_samples,
+    freeze_high_threshold,
     get_xy,
     FEATURE_COLS,
     RISK_LABELS,
@@ -353,7 +356,7 @@ def run_evaluation():
         print("ERROR: No training samples generated")
         return
 
-    print(f"Generated {len(samples):,} training samples")
+    print(f"Generated {len(samples):,} training samples (unlabelled)")
 
     # Walk-forward folds
     cutoff_dates = samples["cutoff_date"].sort_values().unique()
@@ -361,14 +364,15 @@ def run_evaluation():
     fold_edges = np.array_split(np.arange(len(cutoff_dates)), n_folds)
     fold_cutoffs = [cutoff_dates[edges[-1]] for edges in fold_edges]
 
-    print(f"Walk-forward: {n_folds} folds")
+    print(f"Purged walk-forward: {n_folds} folds, purge={PURGE_MONTHS} months")
     print("-" * 80)
 
     # Store results per config
     all_results = {name: [] for name in CONFIGS}
 
     for k in range(1, n_folds):
-        train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1]
+        train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1] - \
+            pd.DateOffset(months=PURGE_MONTHS)
         val_mask = (samples["cutoff_date"] > fold_cutoffs[k - 1]) & \
                    (samples["cutoff_date"] <= fold_cutoffs[k])
 
@@ -378,10 +382,16 @@ def run_evaluation():
         if train_data.empty or val_data.empty:
             continue
 
+        # Freeze label threshold on train only; apply identically to both
+        thr = freeze_high_threshold(train_data)
+        train_data = apply_risk_labels(train_data, thr)
+        val_data = apply_risk_labels(val_data, thr)
+
         X_train, y_train = get_xy(train_data)
         X_val, y_val = get_xy(val_data)
 
-        print(f"\nFold {k}: train={len(train_data):,}, val={len(val_data):,}")
+        print(f"\nFold {k}: train={len(train_data):,}, val={len(val_data):,}, "
+              f"High threshold={thr:.1f}")
 
         for name, factory in CONFIGS.items():
             try:
@@ -442,13 +452,15 @@ def run_evaluation():
     # Threshold tuning on best config's last fold
     print("\n  Running threshold tuning on best config (last fold)...")
     last_k = n_folds - 1
-    train_mask = samples["cutoff_date"] <= fold_cutoffs[last_k - 1]
+    train_mask = samples["cutoff_date"] <= fold_cutoffs[last_k - 1] - \
+        pd.DateOffset(months=PURGE_MONTHS)
     val_mask = (samples["cutoff_date"] > fold_cutoffs[last_k - 1]) & \
                (samples["cutoff_date"] <= fold_cutoffs[last_k])
 
     if not samples[train_mask].empty and not samples[val_mask].empty:
-        X_train, y_train = get_xy(samples[train_mask])
-        X_val, y_val = get_xy(samples[val_mask])
+        thr_last = freeze_high_threshold(samples[train_mask])
+        X_train, y_train = get_xy(apply_risk_labels(samples[train_mask], thr_last))
+        X_val, y_val = get_xy(apply_risk_labels(samples[val_mask], thr_last))
 
         best_factory = CONFIGS[best["config"]]
         model, le = best_factory(X_train, y_train)

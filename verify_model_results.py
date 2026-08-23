@@ -12,7 +12,10 @@ import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix, f1_score, accuracy_score, precision_score, recall_score
 
 from advanced_charts.risk_model import (
+    PURGE_MONTHS,
+    apply_risk_labels,
     build_training_samples, get_xy, train_random_forest, train_xgboost,
+    freeze_high_threshold,
     RISK_LABELS, MODELS_DIR
 )
 
@@ -22,11 +25,8 @@ outages = pd.read_csv(data_file, parse_dates=["incident_date_time"], low_memory=
 samples = build_training_samples(outages)
 
 print(f"Total samples: {len(samples):,}")
-print(f"Class distribution:")
-for label, count in samples["risk_level"].value_counts().items():
-    print(f"  {label}: {count:,} ({count/len(samples)*100:.1f}%)")
 
-# Walk-forward validation (same as website)
+# Walk-forward validation (same as website: purged, frozen thresholds)
 cutoff_dates = samples["cutoff_date"].sort_values().unique()
 n_folds = 5
 fold_edges = np.array_split(np.arange(len(cutoff_dates)), n_folds)
@@ -36,11 +36,12 @@ rf_metrics = []
 xgb_metrics = []
 
 print("\n" + "=" * 70)
-print("WALK-FORWARD VALIDATION")
+print(f"PURGED WALK-FORWARD VALIDATION (purge={PURGE_MONTHS} months)")
 print("=" * 70)
 
 for k in range(1, n_folds):
-    train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1]
+    train_mask = samples["cutoff_date"] <= fold_cutoffs[k - 1] - \
+        pd.DateOffset(months=PURGE_MONTHS)
     val_mask = (samples["cutoff_date"] > fold_cutoffs[k - 1]) & \
                (samples["cutoff_date"] <= fold_cutoffs[k])
 
@@ -49,6 +50,11 @@ for k in range(1, n_folds):
 
     if train_data.empty or val_data.empty:
         continue
+
+    # Freeze label threshold on train only; apply identically to both
+    thr = freeze_high_threshold(train_data)
+    train_data = apply_risk_labels(train_data, thr)
+    val_data = apply_risk_labels(val_data, thr)
 
     X_train, y_train = get_xy(train_data)
     X_val, y_val = get_xy(val_data)
@@ -73,7 +79,7 @@ for k in range(1, n_folds):
     xgb_rec = recall_score(y_val, xgb_pred, labels=RISK_LABELS, average="macro", zero_division=0)
     xgb_metrics.append({"accuracy": xgb_acc, "f1_macro": xgb_f1, "f1_weighted": xgb_f1w, "precision": xgb_prec, "recall": xgb_rec})
 
-    print(f"\nFold {k}: train={len(train_data):,}, val={len(val_data):,}")
+    print(f"\nFold {k}: train={len(train_data):,}, val={len(val_data):,}, High threshold={thr:.1f}")
     print(f"  RF  — acc: {rf_acc:.3f}  F1: {rf_f1:.3f}  F1w: {rf_f1w:.3f}  prec: {rf_prec:.3f}  rec: {rf_rec:.3f}")
     print(f"  XGB — acc: {xgb_acc:.3f}  F1: {xgb_f1:.3f}  F1w: {xgb_f1w:.3f}  prec: {xgb_prec:.3f}  rec: {xgb_rec:.3f}")
 
@@ -98,12 +104,14 @@ print("LAST FOLD — DETAILED REPORT")
 print("=" * 70)
 
 last_k = n_folds - 1
-train_mask = samples["cutoff_date"] <= fold_cutoffs[last_k - 1]
+train_mask = samples["cutoff_date"] <= fold_cutoffs[last_k - 1] - \
+    pd.DateOffset(months=PURGE_MONTHS)
 val_mask = (samples["cutoff_date"] > fold_cutoffs[last_k - 1]) & \
            (samples["cutoff_date"] <= fold_cutoffs[last_k])
 
-X_train, y_train = get_xy(samples[train_mask])
-X_val, y_val = get_xy(samples[val_mask])
+thr_last = freeze_high_threshold(samples[train_mask])
+X_train, y_train = get_xy(apply_risk_labels(samples[train_mask], thr_last))
+X_val, y_val = get_xy(apply_risk_labels(samples[val_mask], thr_last))
 
 rf = train_random_forest(X_train, y_train)
 rf_pred = rf.predict(X_val)

@@ -68,9 +68,10 @@ python data/download_counties.py
 ## Environment Variables (.env)
 
 - `ENW_API_KEY` — Electricity North West API key
-- `XIAOMI_API_KEY` — Xiaomi LLM API key (optional)
-- `OPENAI_API_KEY` — OpenAI API key (optional)
-- `ANTHROPIC_API_KEY` — Anthropic API key (optional)
+- `CMS_API_KEY` — Xiaomi MiMo billing API key (OpenClaw gateway only)
+- `CMS_API_BASE_URL` / `CMS_API_MODEL` — CMS API endpoint/model (synced into openclaw.json)
+- `OPENAI_API_KEY` — OpenAI API key (fallback, optional)
+- `ANTHROPIC_API_KEY` — Anthropic API key (fallback, optional)
 
 ## County Names (OS BoundaryLine)
 

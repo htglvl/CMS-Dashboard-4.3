@@ -67,7 +67,7 @@ graph TD
 ### 1.4 How a Tool Call Works
 
 1. User types "What's the outage risk in Lancaster?" in WebChat
-2. OpenClaw Gateway sends the message to the LLM (via API key — OpenAI, Anthropic, or Xiaomi)
+2. OpenClaw Gateway sends the message to the LLM (via `CMS_API_KEY` — Xiaomi MiMo billing endpoint; fallbacks: OpenAI, Anthropic)
 3. LLM decides to call `geocode` with `{"place": "Lancaster"}`
 4. Gateway finds the registered tool in the plugin, calls `runPythonTool("geocode", {"place": "Lancaster"})`
 5. Plugin spawns: `python tools/geocode.py --place Lancaster`
@@ -327,9 +327,10 @@ The `.env` file in the project root controls API keys and service settings:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `XIAOMI_API_KEY` | One of these three | LLM provider for OpenClaw agent |
-| `OPENAI_API_KEY` | One of these three | LLM provider for OpenClaw agent |
-| `ANTHROPIC_API_KEY` | One of these three | LLM provider for OpenClaw agent |
+| `CMS_API_KEY` | Primary | Xiaomi MiMo billing token (pay-as-you-go) — LLM provider for OpenClaw agent; replaces the retired monthly `XIAOMI_API_KEY` token plan |
+| `CMS_API_BASE_URL` / `CMS_API_MODEL` | Optional | CMS API endpoint/model — synced into `~/.openclaw/openclaw.json` by `openclaw-plugin/configure.py` on every dashboard start |
+| `OPENAI_API_KEY` | Fallback | Used only if `CMS_API_KEY` is not set |
+| `ANTHROPIC_API_KEY` | Fallback | Used only if `CMS_API_KEY` is not set |
 | `ENW_API_KEY` | Yes | Electricity North West live incidents API |
 
 ### 2.7 Data Refresh

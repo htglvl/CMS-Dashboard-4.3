@@ -45,19 +45,33 @@ def load_predictions():
     return pd.concat(dfs, ignore_index=True)
 
 
+def _ecef(lat_deg, lon_deg):
+    """Map lat/lon (degrees) onto the unit sphere (ECEF coordinates).
+
+    Euclidean ("chord") distance in this space is a monotone function of
+    great-circle distance, so nearest-neighbour results are identical.
+    """
+    lat = np.radians(np.asarray(lat_deg, dtype=float))
+    lon = np.radians(np.asarray(lon_deg, dtype=float))
+    return np.column_stack([
+        np.cos(lat) * np.cos(lon),
+        np.cos(lat) * np.sin(lon),
+        np.sin(lat),
+    ])
+
+
 def assign_districts(predictions, outages):
     if outages.empty or "district_name" not in outages.columns:
         predictions["district_name"] = "Unknown"
         return predictions
     valid = outages.dropna(subset=["latitude", "longitude", "district_name"])
-    out_lat = valid["latitude"].values
-    out_lon = valid["longitude"].values
-    out_district = valid["district_name"].values
-    districts = []
-    for _, row in predictions.iterrows():
-        dists = haversine_km(row["lat"], row["lon"], out_lat, out_lon)
-        districts.append(out_district[np.argmin(dists)])
-    predictions["district_name"] = districts
+    # KD-tree over ~300k outage points: O(log n) lookups instead of a
+    # predictions x outages Haversine loop (which cost minutes at dataset scale)
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(_ecef(valid["latitude"].values, valid["longitude"].values))
+    _, idx = tree.query(_ecef(predictions["lat"].values, predictions["lon"].values), k=1)
+    predictions["district_name"] = valid["district_name"].values[idx]
     return predictions
 
 

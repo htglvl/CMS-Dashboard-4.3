@@ -1,0 +1,54 @@
+{
+  "description": "Scheme A/B/C comparison, validation = last walk-forward fold",
+  "train_end": "2021-04-01 00:00:00+00:00",
+  "val_start": "2021-04-01 00:00:00+00:00",
+  "val_end": "2026-05-01 00:00:00+00:00",
+  "n_train_full": 408610,
+  "n_train_rolling10y": 186387,
+  "n_val": 91249,
+  "val_class_dist": {
+    "Low": 0.498,
+    "Medium": 0.33,
+    "High": 0.172
+  },
+  "half_life_years": 5.0,
+  "rolling_years": 10,
+  "arms": {
+    "A_expanding_rf": {
+      "f1_macro": 0.6226809598656571,
+      "accuracy": 0.6473166829225526,
+      "seconds": 37.7,
+      "n_train_used": 408610
+    },
+    "A_expanding_xgb": {
+      "f1_macro": 0.6184863752369055,
+      "accuracy": 0.6403577025501649,
+      "seconds": 46.5,
+      "n_train_used": 408610
+    },
+    "B_rolling10y_rf": {
+      "f1_macro": 0.6218680085701934,
+      "accuracy": 0.6458262556301987,
+      "seconds": 16.4,
+      "n_train_used": 186387
+    },
+    "B_rolling10y_xgb": {
+      "f1_macro": 0.6135928909172931,
+      "accuracy": 0.6331357055967737,
+      "seconds": 28.3,
+      "n_train_used": 186387
+    },
+    "C_recency_rf": {
+      "f1_macro": 0.621209956225495,
+      "accuracy": 0.645628993194446,
+      "seconds": 32.6,
+      "n_train_used": 408610
+    },
+    "C_recency_xgb": {
+      "f1_macro": 0.6178557663300499,
+      "accuracy": 0.640335784501748,
+      "seconds": 43.5,
+      "n_train_used": 408610
+    }
+  }
+}

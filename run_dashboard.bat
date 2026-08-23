@@ -78,6 +78,10 @@ if not exist "nginx\nginx.exe" (
     echo      nginx already exists.
 )
 
+REM --- Sync CMS API settings (.env -> ~/.openclaw/openclaw.json) ---
+echo      Syncing CMS API settings (baseUrl/key from .env)...
+python openclaw-plugin\configure.py
+
 REM --- 7. Start OpenClaw gateway ---
 echo [7/9] Starting OpenClaw gateway...
 start "OpenClaw Gateway" cmd /c "call venv\Scripts\activate.bat && openclaw start --plugin openclaw-plugin"
