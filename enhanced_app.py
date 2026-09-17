@@ -21,6 +21,7 @@ from dashboard.chart_display import display_dynamic_charts
 from dashboard.click_processor import process_map_click
 from dashboard.metrics import render_ai_dashboard
 from dashboard.live_incidents import render_live_incidents
+from dashboard.performance import DashboardProfiler, render_last_profile
 
 # ── Page config (must be first Streamlit command) ────────────────────────
 st.set_page_config(
@@ -61,6 +62,22 @@ st.markdown("""
     margin: 0.5rem 0;
 }
 
+.risk-skeleton {
+    padding: 1rem;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 0.6rem;
+    margin: 0.5rem 0 1rem 0;
+}
+.risk-skeleton-line {
+    height: 0.85rem;
+    margin: 0.55rem 0;
+    border-radius: 0.4rem;
+    background: linear-gradient(90deg, #e5e7eb 25%, #f4f4f5 50%, #e5e7eb 75%);
+    background-size: 200% 100%;
+    animation: risk-shimmer 1.4s infinite;
+}
+@keyframes risk-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
 /* Make spinner full width */
 .stSpinner > div {
     position: relative !important;
@@ -99,6 +116,7 @@ def _ts(msg, t0):
 
 
 def main():
+    profiler = DashboardProfiler()
     t_main = time.time()
     print("\n=== Dashboard main() ===")
 
@@ -121,6 +139,7 @@ def main():
         st.session_state.monthly_page_index = 0
 
     st.markdown('<h1 class="main-header">CMS Grid Resilience AI Dashboard</h1>', unsafe_allow_html=True)
+    render_last_profile(st)
 
     # ── OpenClaw AI Chat button ──────────────────────────────────────────
     _oclaw_href = "/oclaw/"
@@ -159,6 +178,7 @@ def main():
     selected_site_file = os.path.join(dataset_dir, "all_charging_sites.csv")
 
     # ── Load data (fetch from API if file missing) ────────────────────────
+    profile_phase = profiler.start_phase()
     t0 = time.time()
     if not os.path.exists(selected_outage_file):
         try:
@@ -204,8 +224,10 @@ def main():
             return
 
     t0 = _ts(f"load_data ({len(outages)} outages)", t0)
+    profiler.record("Load outage + chargepoint data", profile_phase)
 
     # ── Flexibility tenders: fetch from API if missing or stale ──────────
+    profile_phase = profiler.start_phase()
     flex_geojson_path = os.path.join(dataset_dir, "flexibility_tenders.geojson")
     try:
         from advanced_charts.cache_utils import is_cache_stale
@@ -251,9 +273,12 @@ def main():
     monthly_gdf = monthly_result[0] if monthly_result else None
     monthly_grouped = monthly_result[1] if monthly_result else None
     t0 = _ts("load_monthly_tenders", t0)
+    profiler.record("Load/fetch tender geometry", profile_phase)
 
     # ── Daily check: refresh tenders if API data changed ──────────────
+    profile_phase = profiler.start_phase()
     maybe_refresh_tenders(dataset_dir)
+    profiler.record("Check tender updates", profile_phase)
 
     # ── ENW boundary overlays ─────────────────────────────────────────
     @st.cache_data
@@ -264,26 +289,51 @@ def main():
         except Exception:
             return None
 
+    profile_phase = profiler.start_phase()
     counties_path = os.path.join(dataset_dir, "enwl_counties.geojson")
     la_path = os.path.join(dataset_dir, "enwl_local_authorities.geojson")
     uk_counties = _load_geojson(counties_path) if os.path.exists(counties_path) else None
     local_authorities = _load_geojson(la_path) if os.path.exists(la_path) else None
+    profiler.record("Load boundary overlays", profile_phase)
 
     # ── Sidebar controls ──────────────────────────────────────────────────
+    profile_phase = profiler.start_phase()
     filters = render_sidebar(charging_sites, outages)
     t0 = _ts("render_sidebar", t0)
 
+    # Ask the detached worker to refresh only when the selected interval is due.
+    # This call returns immediately; Streamlit never performs model fitting.
+    from advanced_charts.training_service import (
+        prediction_mtime, request_model_training,
+    )
+    try:
+        training_started, training_status = request_model_training(
+            filters["model_refresh_days"], force=False
+        )
+        if training_started:
+            filters["model_training_running"] = True
+    except Exception as exc:
+        st.sidebar.warning(f"Could not schedule model refresh: {exc}")
+    profiler.record("Render controls + schedule model", profile_phase)
+
     # ── Auto-refresh and periodic fetch ───────────────────────────────────
-    setup_autorefresh(filters["refresh_interval_min"], filters["show_live_incidents"], filters["live_refresh_min"])
+    profile_phase = profiler.start_phase()
+    setup_autorefresh(
+        filters["refresh_interval_min"], filters["show_live_incidents"],
+        filters["live_refresh_min"], filters["model_training_running"],
+    )
     maybe_fetch_outage_data(filters["refresh_interval_min"])
+    profiler.record("Check/fetch outage updates", profile_phase)
 
     # ── Compute everything (with caching) ─────────────────────────────────
     # Create a hash of current filters to detect changes
-    filter_hash = hash(str(sorted(filters.items())))
+    prediction_version = prediction_mtime(filters["risk_model_choice"])
+    filter_hash = hash((str(sorted(filters.items())), prediction_version))
 
     # Only recompute if filters changed or first load
+    profile_phase = profiler.start_phase()
     if "cached_data" not in st.session_state or st.session_state.get("last_filter_hash") != filter_hash:
-        with st.spinner("Computing risk predictions..."):
+        with st.spinner("Preparing dashboard data..."):
             data = prepare_app_data(selected_outage_file, selected_site_file, filters)
         st.session_state.cached_data = data
         st.session_state.last_filter_hash = filter_hash
@@ -296,15 +346,31 @@ def main():
     if data is None:
         st.error("Failed to prepare data.")
         return
+    profiler.record("Prepare dashboard analytics", profile_phase)
 
     # ── Layout ────────────────────────────────────────────────────────────
-    _ts(f"TOTAL main()", t_main)
     col1, col2 = st.columns([4, 1])
 
     with col1:
         st.subheader("Interactive Spatial Analysis", anchor=False)
 
+        if data["risk_predictions"].empty and filters["model_training_running"]:
+            st.markdown(
+                """
+                <div class="risk-skeleton">
+                  <strong>Risk predictions are being prepared in the background</strong>
+                  <div class="risk-skeleton-line" style="width:92%"></div>
+                  <div class="risk-skeleton-line" style="width:76%"></div>
+                  <div class="risk-skeleton-line" style="width:84%"></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif data["risk_predictions"].empty:
+            st.info("Risk predictions are not available yet. Use ‘Retrain Risk Models’ to start the background worker.")
+
         # Create map with pin (if previously clicked)
+        profile_phase = profiler.start_phase()
         interactive_map = create_advanced_map(
             data["charging_sites"], data["filtered_outages"],
             show_layers=filters["show_layers"],
@@ -321,15 +387,21 @@ def main():
             enw_counties=uk_counties,
             enw_local_authorities=local_authorities,
         )
+        profiler.record("Build Folium map", profile_phase)
 
         # Render map
+        profile_phase = profiler.start_phase()
         map_data = st_folium(
             interactive_map,
             width="stretch",
             height=600,
+            # st_folium otherwise renders the complete Folium tree twice.
+            # Its normal component path still performs the required render.
+            render=False,
             returned_objects=["last_clicked", "last_object_clicked", "last_object_clicked_popup"],
             key="main_map",
         )
+        profiler.record("Streamlit/Folium handoff", profile_phase)
 
         # DEBUG: dump full map_data to see what st_folium returns
         print(f"[DEBUG] map_data keys: {list(map_data.keys()) if map_data else 'None'}")
@@ -477,6 +549,7 @@ def main():
                 monthly_grouped=monthly_grouped,
             )
 
+    profile_phase = profiler.start_phase()
     with col2:
         # ── Right panel: Dashboard ───────────────────────────────────────
         render_live_incidents(data["live_incidents"], filters["show_live_incidents"], filters["live_refresh_label"])
@@ -485,6 +558,10 @@ def main():
             data["charging_sites"], filters["selected_categories"],
             data["risk_report"], data["risk_predictions"],
         )
+    profiler.record("Render metrics panel", profile_phase)
+    completed_profile = profiler.finish()
+    _ts("TOTAL main()", t_main)
+    print(f"[PROFILE] server load: {completed_profile['total_seconds']:.3f}s")
 
 
 if __name__ == "__main__":

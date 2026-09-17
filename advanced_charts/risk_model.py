@@ -41,8 +41,11 @@ Models are saved to ``models/rf_model.pkl`` and ``models/xgb_model.pkl``.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -660,27 +663,56 @@ def predict_cells(model, features: pd.DataFrame, label_encoder=None) -> pd.DataF
 # ---------------------------------------------------------------------------
 
 
-def save_models(rf_model, xgb_model, xgb_label_encoder):
-    """Persist trained models to disk."""
+def _atomic_joblib_dump(value, destination: Path):
+    """Write a joblib artifact without exposing a partially-written file."""
     import joblib
 
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        joblib.dump(value, temp_path)
+        os.replace(temp_path, destination)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _atomic_text_write(text: str, destination: Path):
+    """Write text atomically so dashboard readers always see a complete file."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        temp_path.write_text(text, encoding="utf-8")
+        os.replace(temp_path, destination)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def save_models(rf_model, xgb_model, xgb_label_encoder):
+    """Persist trained models atomically."""
     MODELS_DIR.mkdir(exist_ok=True)
 
-    # Remove old files before writing new ones
-    for path in [RF_MODEL_PATH, XGB_MODEL_PATH]:
-        if path.exists():
-            path.unlink()
-
-    joblib.dump(rf_model, RF_MODEL_PATH)
-    joblib.dump({"model": xgb_model, "label_encoder": xgb_label_encoder}, XGB_MODEL_PATH)
+    _atomic_joblib_dump(rf_model, RF_MODEL_PATH)
+    _atomic_joblib_dump(
+        {"model": xgb_model, "label_encoder": xgb_label_encoder}, XGB_MODEL_PATH
+    )
     log.info("Models saved to %s", MODELS_DIR)
 
 
-def load_models():
+def load_models(auto_train: bool = False):
     """Load persisted models from disk.
 
-    If model files are missing or older than 3 months, trains them from
-    ``df_cleaned.csv`` and saves them to disk before loading.
+    Model training is intentionally opt-in so a web request can never start
+    a long-running training job.  The dashboard starts the standalone worker
+    instead.  CLI callers that explicitly want the legacy behaviour may pass
+    ``auto_train=True``.
 
     Returns
     -------
@@ -688,12 +720,14 @@ def load_models():
         (rf_model, xgb_model, xgb_label_encoder)
     """
     import joblib
-    from advanced_charts.cache_utils import is_cache_stale
-
-    if (not RF_MODEL_PATH.exists() or not XGB_MODEL_PATH.exists()
-            or is_cache_stale(RF_MODEL_PATH) or is_cache_stale(XGB_MODEL_PATH)):
+    missing = not RF_MODEL_PATH.exists() or not XGB_MODEL_PATH.exists()
+    if missing and auto_train:
         log.info("Model files missing or stale — training from %s", DATA_FILE)
         _train_and_save()
+    elif missing:
+        raise FileNotFoundError(
+            "Risk model artifacts are not available. Run risk_training_worker.py first."
+        )
 
     rf_model = joblib.load(RF_MODEL_PATH)
     xgb_bundle = joblib.load(XGB_MODEL_PATH)
@@ -719,7 +753,7 @@ def load_frozen_threshold() -> float | None:
         return None
 
 
-def _train_and_save():
+def _train_and_save(progress_callback=None):
     """Train both models using purged walk-forward validation and save to disk.
 
     Uses 12-month feature windows, 3-month prediction windows, 1-month step.
@@ -737,14 +771,19 @@ def _train_and_save():
     """
     from sklearn.metrics import f1_score
 
+    def progress(percent, message):
+        if progress_callback is not None:
+            progress_callback(int(percent), message)
+
+    progress(2, "Loading outage history")
     outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
     log.info("Training models on %d outage records...", len(outages))
 
     # Build sliding-window training samples (unlabelled)
+    progress(7, "Building training windows")
     samples = build_training_samples(outages)
     if samples.empty:
-        log.error("No training samples generated — check data range")
-        return
+        raise RuntimeError("No training samples generated — check data range")
 
     # Split into 5 chronological folds by cutoff_date
     cutoff_dates = samples["cutoff_date"].sort_values().unique()
@@ -764,6 +803,7 @@ def _train_and_save():
     fold_thresholds = []
 
     for k in range(1, n_folds):
+        progress(12 + (k - 1) * 12, f"Validating chronological fold {k} of {n_folds - 1}")
         val_boundary = fold_cutoffs[k - 1]
         train_mask = samples["cutoff_date"] <= val_boundary - pd.DateOffset(months=PURGE_MONTHS)
         val_mask = (samples["cutoff_date"] > val_boundary) & \
@@ -838,8 +878,7 @@ def _train_and_save():
         mm, _ = _mean(majority_metrics, "f1_macro")
         log.info("Baselines F1(mean): persistence=%.3f, majority=%.3f", pm, mm)
 
-    # Persist metrics to JSON
-    import json
+    # Keep metrics in memory until the complete model run is ready to publish.
     metrics_path = MODELS_DIR / "accuracy_metrics.json"
     metrics_data = {
         "method": "purged expanding-window walk-forward (5 folds, "
@@ -856,41 +895,47 @@ def _train_and_save():
         "majority_mean_f1": _mean(majority_metrics, "f1_macro")[0],
         "persistence_mean_f1": _mean(persistence_metrics, "f1_macro")[0],
     }
-    metrics_path.write_text(json.dumps(metrics_data, indent=2))
-    log.info("Metrics saved to %s", metrics_path)
-
     # Train final production models on ALL data (threshold frozen likewise)
+    progress(62, "Preparing final production dataset")
     high_threshold = freeze_high_threshold(samples)
     samples = apply_risk_labels(samples, high_threshold)
     log.info("Training final production models on all %d samples (High threshold=%.1f)...",
              len(samples), high_threshold)
     X_all, y_all = get_xy(samples)
 
+    progress(68, "Training final Random Forest")
     rf_model = train_random_forest(X_all, y_all)
     get_feature_importance(rf_model, "Random Forest")
 
+    progress(78, "Training final XGBoost model")
     xgb_model, xgb_le = train_xgboost(X_all, y_all)
     get_feature_importance(xgb_model, "XGBoost")
 
+    progress(87, "Publishing trained models")
     save_models(rf_model, xgb_model, xgb_le)
 
     # Record the production threshold next to the metrics
     metrics_data["production_high_threshold"] = high_threshold
-    metrics_path.write_text(json.dumps(metrics_data, indent=2))
+    _atomic_text_write(json.dumps(metrics_data, indent=2), metrics_path)
+    log.info("Metrics saved to %s", metrics_path)
 
     # Save predictions for the full grid (not just the last sliding window),
     # using the SAME frozen threshold so map colours match training semantics
+    progress(91, "Building final grid predictions")
     log.info("Building full grid features for prediction CSV...")
     full_features = build_grid_features(outages)
     full_features = assign_risk_labels(full_features, high_threshold=high_threshold)
     has_data = full_features[FEATURE_COLS].sum(axis=1) > 0
     full_features = full_features[has_data]
 
-    for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
+    prediction_jobs = [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]
+    for index, (name, model, le) in enumerate(prediction_jobs):
+        progress(94 + index * 3, f"Publishing {name} predictions")
         preds = predict_cells(model, full_features, le)
         out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
-        preds.to_csv(out_path, index=False)
+        _atomic_text_write(preds.to_csv(index=False), out_path)
         log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
+    progress(100, "Training complete")
 
 
 # ---------------------------------------------------------------------------

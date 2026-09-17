@@ -71,8 +71,14 @@ Toggle visibility of:
 |---------|---------|---------|
 | Data refresh interval | 30 seconds, Hourly, Daily, Weekly, Monthly | Hourly |
 | Live incidents refresh | 15 min, 30 min, 1 hour, 2 hours, Disabled | 30 minutes |
+| Model refresh interval | Daily, Weekly, Monthly, Every 90 days | Monthly |
 
 ### Risk Prediction
+
+Model refreshes run in a separate Python worker, so training does not block
+the dashboard. The most recent completed predictions stay visible during a
+refresh. The sidebar shows live progress, and the first run uses a skeleton
+placeholder until predictions have been published.
 
 | Setting | Options | Default |
 |---------|---------|---------|

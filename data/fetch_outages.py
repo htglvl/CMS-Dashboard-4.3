@@ -36,6 +36,7 @@ EXPORT_URL = "https://electricitynorthwest.opendatasoft.com/api/explore/v2.1/cat
 DEFAULT_OUTPUT = str(Path(__file__).parent / "df_cleaned.csv")
 PARQUET_OUTPUT = str(Path(__file__).parent / "df_cleaned.parquet")
 STATE_FILE = str(Path(__file__).parent / ".last_fetch_outages")
+CHECK_FILE = str(Path(__file__).parent / ".last_outage_api_check")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -383,6 +384,7 @@ def run_daily_fetch(
         result["skipped"] = True
         if not state_file.exists():
             save_last_fetch_date(state_file, datetime.now(timezone.utc).isoformat())
+        (base_dir / CHECK_FILE).touch()
         return result
 
     df = prepare_for_dashboard(df)
@@ -437,6 +439,7 @@ def run_daily_fetch(
     else:
         save_last_fetch_date(state_file, datetime.now(timezone.utc).isoformat())
 
+    (base_dir / CHECK_FILE).touch()
     return result
 
 

@@ -10,6 +10,8 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 _PERSIST_PATH = Path(__file__).parent.parent / "data" / "sidebar_prefs.json"
+_OUTAGE_CHECK_PATH = Path(__file__).parent.parent / "data" / ".last_outage_api_check"
+_TENDER_CHECK_PATH = Path(__file__).parent.parent / "data" / ".last_tender_api_check"
 
 
 def _load_prefs():
@@ -77,7 +79,8 @@ def render_sidebar(charging_sites, outages):
         use_iqr_filter, use_significance_filter, iqr_multiplier,
         significance_quantile, show_layers, refresh_interval_min,
         show_live_incidents, live_refresh_min, live_refresh_label,
-        risk_model_choice, confidence_threshold
+        risk_model_choice, confidence_threshold, model_refresh_days,
+        model_training_running
     """
     st.sidebar.header("Advanced Filters")
 
@@ -203,24 +206,53 @@ def render_sidebar(charging_sites, outages):
         help="Only show heatmap cells where model confidence exceeds this value"
     )
 
+    model_refresh_options = {
+        "Daily": 1,
+        "Weekly": 7,
+        "Monthly": 30,
+        "Every 90 days": 90,
+    }
+    default_refresh_days = int(_prefs.get("model_refresh_days", 30))
+    default_refresh_label = next(
+        (label for label, days in model_refresh_options.items() if days == default_refresh_days),
+        "Monthly",
+    )
+    model_refresh_label = st.sidebar.select_slider(
+        "Model refresh interval",
+        options=list(model_refresh_options),
+        value=default_refresh_label,
+        help="How often the separate Python worker should retrain and publish new risk results.",
+    )
+    model_refresh_days = model_refresh_options[model_refresh_label]
+
     # Persist when changed
-    if confidence_threshold != _default_conf:
+    if (confidence_threshold != _default_conf
+            or model_refresh_days != default_refresh_days):
         _prefs["confidence_threshold"] = confidence_threshold
+        _prefs["model_refresh_days"] = model_refresh_days
         _save_prefs(_prefs)
 
     if st.sidebar.button("🔄 Retrain Risk Models", width="stretch"):
-        with st.spinner("Retraining models... this may take a minute"):
-            try:
-                from advanced_charts.risk_model import _train_and_save, invalidate_features_cache
+        try:
+            from advanced_charts.training_service import request_model_training
+            started, _ = request_model_training(model_refresh_days, force=True)
+            if started:
+                st.toast("Risk-model training started in the background.", icon="🧠")
+        except Exception as e:
+            st.sidebar.error(f"❌ Could not start training: {e}")
 
-                invalidate_features_cache()
-                _train_and_save()
-
-                st.sidebar.success("✅ Models retrained!")
-                st.toast("Risk models retrained successfully.", icon="🧠")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"❌ Retrain failed: {e}")
+    from advanced_charts.training_service import normalise_training_status
+    training_status = normalise_training_status()
+    training_state = training_status.get("state", "idle")
+    if training_state in {"queued", "running"}:
+        progress = int(training_status.get("progress", 0))
+        st.sidebar.progress(progress, text=training_status.get("message", "Training risk models"))
+        st.sidebar.caption("The dashboard remains available while the worker runs.")
+    elif training_state == "failed":
+        st.sidebar.error(f"Model training failed: {training_status.get('message', 'Unknown error')}")
+    elif training_state == "completed":
+        finished = str(training_status.get("finished_at", ""))[:16].replace("T", " ")
+        st.sidebar.caption(f"✅ Latest model refresh: {finished} UTC")
 
     return {
         "years": years,
@@ -238,10 +270,13 @@ def render_sidebar(charging_sites, outages):
         "live_refresh_label": live_refresh_label,
         "risk_model_choice": risk_model_choice,
         "confidence_threshold": confidence_threshold,
+        "model_refresh_days": model_refresh_days,
+        "model_training_running": training_state in {"queued", "running"},
     }
 
 
-def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_min):
+def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_min,
+                      model_training_running=False):
     """Configure auto-refresh timers."""
     st_autorefresh(
         interval=refresh_interval_min * 60 * 1000,
@@ -252,12 +287,17 @@ def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_mi
             interval=live_refresh_min * 60 * 1000,
             key="live_incidents_refresh",
         )
+    if model_training_running:
+        st_autorefresh(interval=2000, key="risk_training_progress_refresh")
 
 
 def maybe_fetch_outage_data(refresh_interval_min):
     """Periodically fetch new outage data from the ENW API."""
     if "_last_outage_fetch_ts" not in st.session_state:
-        st.session_state["_last_outage_fetch_ts"] = 0.0
+        try:
+            st.session_state["_last_outage_fetch_ts"] = _OUTAGE_CHECK_PATH.stat().st_mtime
+        except OSError:
+            st.session_state["_last_outage_fetch_ts"] = 0.0
 
     _elapsed = _time.time() - st.session_state["_last_outage_fetch_ts"]
     if _elapsed >= refresh_interval_min * 60:
@@ -275,22 +315,16 @@ def maybe_fetch_outage_data(refresh_interval_min):
                     st.toast(f"Fetched {result['fetched']:,} new outage records.", icon="⚡")
                     from enhanced_app import load_data
                     load_data.clear()
-                    # Retrain models with new data
-                    fetch_status.caption("🔄 Retraining risk models...")
-                    try:
-                        from advanced_charts.risk_model import _train_and_save, invalidate_features_cache
-                        invalidate_features_cache()
-                        _train_and_save()
-                        fetch_status.success(f"⚡ Fetched {result['fetched']:,} records — models retrained")
-                        st.toast("Risk models retrained with new data.", icon="🧠")
-                    except Exception as e:
-                        fetch_status.warning(f"⚠️ Fetched data but retraining failed: {e}")
+                    fetch_status.success(
+                        f"⚡ Fetched {result['fetched']:,} records — model refresh remains asynchronous"
+                    )
                 else:
                     fetch_status.success("✔ Up to date")
                     st.toast("Outage data is already up to date.", icon="✔")
             else:
                 fetch_status.empty()
             st.session_state["_last_outage_fetch_ts"] = _time.time()
+            _OUTAGE_CHECK_PATH.touch()
         except (ImportError, Exception):
             pass
 
@@ -302,13 +336,17 @@ def maybe_refresh_tenders(dataset_dir):
     Runs at most once every 24 hours.
     """
     if "_last_tender_refresh_ts" not in st.session_state:
-        st.session_state["_last_tender_refresh_ts"] = 0.0
+        try:
+            st.session_state["_last_tender_refresh_ts"] = _TENDER_CHECK_PATH.stat().st_mtime
+        except OSError:
+            st.session_state["_last_tender_refresh_ts"] = 0.0
 
     _elapsed = _time.time() - st.session_state["_last_tender_refresh_ts"]
     if _elapsed < 86400:  # 24 hours
         return
 
     st.session_state["_last_tender_refresh_ts"] = _time.time()
+    _TENDER_CHECK_PATH.touch()
 
     # ── Biannual tenders ──────────────────────────────────────────────
     biannual_path = os.path.join(dataset_dir, "flexibility_tenders.geojson")

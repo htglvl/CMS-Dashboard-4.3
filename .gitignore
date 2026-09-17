@@ -72,6 +72,8 @@ node_modules/
 
 # Regeneratable model predictions and caches
 models/predictions_*.csv
+models/training_status.json
+models/training.lock
 data/risk_predictions_cache.pkl
 
 data/*

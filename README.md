@@ -11,6 +11,7 @@ An interactive dashboard for analysing unplanned power outages across the Electr
 - **Statistical filtering** — IQR outlier removal, significance thresholds
 - **Per-site analysis** — frequency timelines, customer impact, risk radar charts
 - **ML risk prediction** — Random Forest and XGBoost models predicting outage risk per grid cell
+- **Non-blocking model refresh** — risk models train in a separate Python process while the dashboard continues serving the last completed results
 - **Business recommendations** — charging station placement, grid resilience priorities, community impact
 - **Natural language interface** — ask questions about risk, charger placement, and investment priorities
 - **Automated data fetching** — daily pull of outage records from the ENW API
@@ -70,9 +71,9 @@ pip install -r requirements.txt
 copy .env.example .env
 # Edit .env with your keys
 
-# 4. Fetch data and train model
+# 4. Fetch data and train model (standalone worker)
 python data/fetch_outages.py
-python advanced_charts/risk_model.py
+python risk_training_worker.py --force
 
 # 5. Launch dashboard
 streamlit run enhanced_app.py
@@ -86,6 +87,7 @@ streamlit run enhanced_app.py
 CMS Dashboard 4.3/
 │
 ├── enhanced_app.py              # Main entry point
+├── risk_training_worker.py      # Isolated background ML trainer
 ├── setup.bat                    # First-time setup script
 ├── run_dashboard.bat            # Launch dashboard
 ├── run_cleaning_dashboard.bat   # Launch chargepoint cleaning utility
@@ -99,6 +101,7 @@ CMS Dashboard 4.3/
 │   ├── cache_utils.py           # Caching utilities
 │   ├── recommendations.py       # AIRecommendationEngine (rule-based)
 │   ├── risk_model.py            # ML model (Random Forest + XGBoost)
+│   ├── training_service.py      # Worker scheduling and progress status
 │   └── recommendation_engine.py # Business recommendations + NL interface
 │
 ├── dashboard/                   # UI: Streamlit rendering
@@ -131,6 +134,20 @@ CMS Dashboard 4.3/
 ├── logs/                        # Fetch logs (not tracked by git)
 └── wiki/                        # Full documentation
 ```
+
+The sidebar's **Model refresh interval** can be set to Daily, Weekly,
+Monthly, or Every 90 days. When a refresh is due (or the retrain button is
+pressed), Streamlit launches `risk_training_worker.py` and immediately keeps
+rendering with the last complete prediction CSV. Progress is shown in the
+sidebar; new models and predictions replace the old artifacts atomically only
+after each output is complete.
+
+The latest server-side load profile is available in the collapsed **Load
+profiler (last run)** sidebar panel and is persisted to
+`logs/dashboard_profile.json`. It reports phase timings and percentages for
+data preparation, update checks, Folium map construction, and the Streamlit
+component handoff. Browser-side map tile downloads and paint time are outside
+this server profile.
 
 ---
 

@@ -12,10 +12,6 @@ import pandas as pd
 import streamlit as st
 
 from data.fetch_live_incidents import fetch_live_incidents
-from advanced_charts.risk_model import (
-    build_grid_features_cached, assign_risk_labels,
-    load_models as load_risk_models, predict_cells, FEATURE_COLS,
-)
 from dashboard.sidebar import apply_filters
 
 
@@ -94,6 +90,9 @@ def load_flexibility_tenders(geojson_path: str, _file_mtime: float = 0):
 
         # Dissolve geometries by substation_name (one polygon per substation)
         dissolved = gdf.dissolve(by="substation_name", aggfunc="first").reset_index()
+        # Folium serializes this geometry into the component payload. A small
+        # (~30 m) topology-preserving simplification substantially reduces it.
+        dissolved["geometry"] = dissolved.geometry.simplify(0.0003, preserve_topology=True)
 
         return dissolved, grouped
     except Exception:
@@ -145,6 +144,7 @@ def load_monthly_tenders(geojson_path: str, _file_mtime: float = 0):
             )
 
         dissolved = gdf.dissolve(by="substation_name", aggfunc="first").reset_index()
+        dissolved["geometry"] = dissolved.geometry.simplify(0.0003, preserve_topology=True)
 
         return dissolved, grouped
     except Exception:
@@ -153,55 +153,38 @@ def load_monthly_tenders(geojson_path: str, _file_mtime: float = 0):
 
 # ── Risk model helpers (cached) ──────────────────────────────────────────
 
-@st.cache_resource
-def _load_risk_models_cached():
-    return load_risk_models()
+@st.cache_data
+def _load_published_risk_predictions(model_choice: str, _prediction_mtime: float):
+    """Read only a worker-published result; never train inside Streamlit."""
+    from advanced_charts.training_service import prediction_path
 
-
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
-def _compute_risk_predictions(_outages_hash, model_choice, _outages_len):
-    """Compute risk predictions using the full dataset."""
-    import joblib
-    from advanced_charts.cache_utils import is_cache_stale_vs_source
-
-    pred_cache = Path("data/risk_predictions_cache.pkl")
-    source = Path("data/df_cleaned.csv")
-
-    # Try disk cache first (persists across Streamlit restarts)
-    if pred_cache.exists() and not is_cache_stale_vs_source(pred_cache, source):
-        cached = joblib.load(pred_cache)
-        if cached.get("model_choice") == model_choice:
-            return cached["predictions"]
-
-    outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
-    if outages_df.empty:
+    path = prediction_path(model_choice)
+    if not path.exists():
         return pd.DataFrame(columns=["lat", "lon", "risk_level", "confidence"])
-
-    from advanced_charts.risk_model import build_grid_features_cached, FEATURE_COLS
-    features = build_grid_features_cached(outages_df)
-
-    # Only keep cells with actual outage data
-    has_data = features[FEATURE_COLS].sum(axis=1) > 0
-    features = features[has_data]
-
-    features = assign_risk_labels(features)
-    rf_model, xgb_model, xgb_le = _load_risk_models_cached()
-    if model_choice == "XGBoost":
-        preds = predict_cells(xgb_model, features, xgb_le)
-    else:
-        preds = predict_cells(rf_model, features)
-
-    # Save to disk cache
-    joblib.dump({"predictions": preds, "model_choice": model_choice}, pred_cache)
-    return preds
+    try:
+        return pd.read_csv(path)
+    except (OSError, pd.errors.ParserError):
+        # Atomic publication should make this rare; keep the rest of the UI alive.
+        return pd.DataFrame(columns=["lat", "lon", "risk_level", "confidence"])
 
 
 def _build_recommendations(_pred_hash, _outages_len):
     """Build recommendations (no Streamlit cache — generate_report_cached handles its own caching)."""
-    from advanced_charts.recommendation_engine import generate_report_cached
+    from advanced_charts.recommendation_engine import REPORT_CACHE, generate_report_cached
+
+    # The report loader does not inspect its data arguments when a persistent
+    # cache exists. Avoid re-reading the 100+ MB outage CSV just to load it.
+    if REPORT_CACHE.exists():
+        return generate_report_cached(None, None, None)
+
     outages_df = pd.read_csv("data/df_cleaned.csv", low_memory=False, parse_dates=["incident_date_time"])
     sites_df = pd.read_csv("data/all_charging_sites.csv", low_memory=False)
-    preds = _compute_risk_predictions(_pred_hash, "Random Forest", _outages_len)
+    from advanced_charts.training_service import prediction_mtime
+    preds = _load_published_risk_predictions(
+        "Random Forest", prediction_mtime("Random Forest")
+    )
+    if preds.empty:
+        return {}
     return generate_report_cached(preds, outages_df, sites_df)
 
 
@@ -286,11 +269,13 @@ def prepare_app_data(outage_file: str, site_file: str, filters: dict):
     # Precompute chart aggregation data (once, cached to disk)
     _ensure_chart_data_cache(outages, charging_sites)
 
-    # Risk model - use cached version
-    outages_hash = f"{len(outages)}_{outages['incident_date_time'].max()}"
+    # Risk model: consume the latest complete worker output only.
+    from advanced_charts.training_service import prediction_mtime
     t0 = time.time()
-    risk_predictions = _compute_risk_predictions(outages_hash, filters["risk_model_choice"], len(outages))
-    print(f"    [  {(time.time()-t0)*1000:6.1f}ms] _compute_risk_predictions")
+    risk_predictions = _load_published_risk_predictions(
+        filters["risk_model_choice"], prediction_mtime(filters["risk_model_choice"])
+    )
+    print(f"    [  {(time.time()-t0)*1000:6.1f}ms] load published risk predictions")
     t0 = time.time()
     risk_report = _build_recommendations(f"{len(risk_predictions)}_{filters['risk_model_choice']}", len(outages))
     print(f"    [  {(time.time()-t0)*1000:6.1f}ms] _build_recommendations")

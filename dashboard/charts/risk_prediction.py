@@ -6,7 +6,7 @@ import streamlit as st
 
 
 @st.cache_resource
-def _cached_models():
+def _cached_models(_artifact_version):
     from advanced_charts.risk_model import load_models as _load
     return _load()
 
@@ -14,11 +14,12 @@ def _cached_models():
 _fi_cache: dict = {}
 
 
-def _cached_feature_importance(model, model_name: str):
+def _cached_feature_importance(model, model_name: str, artifact_version):
     from advanced_charts.risk_model import get_feature_importance
-    if model_name not in _fi_cache:
-        _fi_cache[model_name] = get_feature_importance(model, model_name)
-    return _fi_cache[model_name]
+    key = (model_name, artifact_version)
+    if key not in _fi_cache:
+        _fi_cache[key] = get_feature_importance(model, model_name)
+    return _fi_cache[key]
 
 
 def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model_choice, clicked_lat=None, clicked_lng=None):
@@ -86,9 +87,14 @@ def render_risk_prediction(site_outages, site_info, risk_predictions, risk_model
     # Top features (cached)
     st.markdown("**Top Contributing Features** (relative importance, sums to 1.0 across all features):")
     try:
-        rf_model, xgb_model, xgb_le = _cached_models()
+        from advanced_charts.risk_model import RF_MODEL_PATH, XGB_MODEL_PATH
+        artifact_version = (
+            RF_MODEL_PATH.stat().st_mtime if RF_MODEL_PATH.exists() else 0,
+            XGB_MODEL_PATH.stat().st_mtime if XGB_MODEL_PATH.exists() else 0,
+        )
+        rf_model, xgb_model, xgb_le = _cached_models(artifact_version)
         model = xgb_model if risk_model_choice == "XGBoost" else rf_model
-        fi = _cached_feature_importance(model, risk_model_choice)
+        fi = _cached_feature_importance(model, risk_model_choice, artifact_version)
         for _, row in fi.head(3).iterrows():
             pct = row['importance'] * 100
             st.markdown(f"• **{row['feature']}** — {pct:.1f}%")

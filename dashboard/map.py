@@ -32,15 +32,30 @@ def _build_heatmap_data(filtered_outages):
         return _heatmap_cache_data
 
     _valid = filtered_outages['latitude'].notna() & filtered_outages['longitude'].notna()
-    _lats = filtered_outages.loc[_valid, 'latitude'].values
-    _lngs = filtered_outages.loc[_valid, 'longitude'].values
-    _durs = (
-        filtered_outages.loc[_valid, 'duration-hours'].values
-        if 'duration-hours' in filtered_outages.columns
-        else np.ones(_valid.sum())
-    )
+    _columns = ['latitude', 'longitude']
+    if 'duration-hours' in filtered_outages.columns:
+        _columns.append('duration-hours')
+    _points = filtered_outages.loc[_valid, _columns].copy()
+    _cell_size = 0.02  # approximately 2 km, matching the risk-model grid
+    _points['latitude'] = (
+        np.floor(_points['latitude'] / _cell_size) * _cell_size + _cell_size / 2
+    ).round(3)
+    _points['longitude'] = (
+        np.floor(_points['longitude'] / _cell_size) * _cell_size + _cell_size / 2
+    ).round(3)
+    if 'duration-hours' in _points.columns:
+        _points['weight'] = pd.to_numeric(_points['duration-hours'], errors='coerce').fillna(0)
+    else:
+        _points['weight'] = 1.0
 
-    _heat = np.column_stack([_lats, _lngs, _durs]).tolist()
+    # Sending 100k+ individual points through Streamlit/Folium dominated page
+    # load time. A ~2 km grid preserves total heat weight and map-level shape
+    # while reducing the component payload by roughly an order of magnitude.
+    _heat = (
+        _points.groupby(['latitude', 'longitude'], as_index=False)['weight']
+        .sum()[['latitude', 'longitude', 'weight']]
+        .values.tolist()
+    )
 
     _heatmap_cache_key = _key
     _heatmap_cache_data = _heat
