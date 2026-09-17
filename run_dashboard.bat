@@ -9,6 +9,9 @@ echo.
 
 cd /d "%~dp0"
 
+REM Internal mode used by this same batch file for the hidden daily pre-warmer.
+if /I "%~1"=="--prewarm-loop" goto :prewarm_loop
+
 REM --- Check if setup has been run ---
 if not exist ".env" (
     if exist ".env.example" (
@@ -107,6 +110,10 @@ timeout /t 1 /nobreak >nul
 start "Nginx Proxy" cmd /c "cd /d "%~dp0nginx" && nginx.exe"
 timeout /t 2 /nobreak >nul
 
+REM --- Pre-warm now and every 24 hours while this server remains running ---
+echo      Starting daily dashboard cache pre-warmer...
+start "Dashboard Cache Prewarmer" /MIN cmd /d /c ""%~f0" --prewarm-loop"
+
 REM --- 9. Start Cloudflare tunnel ---
 echo [9/9] Starting Cloudflare tunnel on port 8501...
 start "Cloudflare Tunnel" cmd /c "call venv\Scripts\activate.bat && python capture_tunnel_url.py"
@@ -127,6 +134,7 @@ pause >nul
 
 echo.
 echo Stopping background services...
+taskkill /FI "WINDOWTITLE eq Dashboard Cache Prewarmer*" /T /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq OpenClaw Gateway*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq OpenClaw Proxy*" >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Streamlit Dashboard*" >nul 2>&1
@@ -135,3 +143,19 @@ wmic process where "name='nginx.exe'" delete >nul 2>&1
 wmic process where "name='node.exe'" delete >nul 2>&1
 echo All services stopped.
 pause
+exit /b 0
+
+:prewarm_loop
+title Dashboard Cache Prewarmer
+
+:prewarm_daily
+echo [%date% %time%] Pre-warming dashboard caches...
+if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
+    start "" /B "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu --no-first-run --no-default-browser-check --user-data-dir="%TEMP%\cms-dashboard-prewarm" --virtual-time-budget=30000 --dump-dom "http://127.0.0.1:8501/home" >nul 2>&1
+) else if exist "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" (
+    start "" /B "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu --no-first-run --no-default-browser-check --user-data-dir="%TEMP%\cms-dashboard-prewarm" --virtual-time-budget=30000 --dump-dom "http://127.0.0.1:8501/home" >nul 2>&1
+) else (
+    echo WARNING: Chrome or Edge not found; cache pre-warm skipped.
+)
+timeout /t 86400 /nobreak >nul
+goto :prewarm_daily

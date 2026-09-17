@@ -149,6 +149,12 @@ data preparation, update checks, Folium map construction, and the Streamlit
 component handoff. Browser-side map tile downloads and paint time are outside
 this server profile.
 
+For continuously running deployments, `run_dashboard.bat` starts its own
+minimized cache-prewarmer loop. It warms the dashboard immediately and then
+every 24 hours. Each headless Chrome/Edge session exits after the page has
+executed; the lightweight batch scheduler remains until the dashboard is
+stopped, when it is terminated with the other services.
+
 ---
 
 ## Documentation
