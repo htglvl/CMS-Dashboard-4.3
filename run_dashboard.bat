@@ -60,12 +60,23 @@ set /p CMS_PUBLIC_URL=<worker_url.txt
 if not exist "cloudflared.exe" (
     echo      Downloading cloudflared...
     curl --fail -L -o cloudflared.exe.tmp "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    if !errorlevel! equ 35 (
+        echo      TLS handshake failed; retrying with best-effort revocation checks.
+        REM Retains certificate and hostname validation. Only unavailable
+        REM revocation-list checks are tolerated by Schannel on this retry.
+        curl --ssl-revoke-best-effort --fail -L -o cloudflared.exe.tmp "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    )
     if errorlevel 1 (
         echo ERROR: cloudflared download failed.
         pause
         exit /b 1
     )
     move /y cloudflared.exe.tmp cloudflared.exe >nul
+    if errorlevel 1 (
+        echo ERROR: Could not save cloudflared.exe. Check folder permissions.
+        pause
+        exit /b 1
+    )
 )
 
 echo [3/9] Checking for new outage data...
