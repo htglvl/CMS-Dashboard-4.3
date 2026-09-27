@@ -270,7 +270,7 @@ def render_sidebar(charging_sites, outages):
 
 @st.fragment(run_every="2s")
 def render_training_progress():
-    """Refresh only progress; reload predictions once a completed run is seen."""
+    """Silently monitor the worker and reload once new predictions are ready."""
     from advanced_charts.training_service import normalise_training_status
     training_status = normalise_training_status()
     training_state = training_status.get("state", "idle")
@@ -278,15 +278,6 @@ def render_training_progress():
     st.session_state["_observed_training_state"] = training_state
     if previous_state in {"queued", "running"} and training_state == "completed":
         st.rerun()
-    if training_state in {"queued", "running"}:
-        progress = int(training_status.get("progress", 0))
-        st.progress(progress, text=training_status.get("message", "Training risk models"))
-        st.caption("The dashboard remains available while the worker runs.")
-    elif training_state == "failed":
-        st.error(f"Model training failed: {training_status.get('message', 'Unknown error')}")
-    elif training_state == "completed":
-        finished = str(training_status.get("finished_at", ""))[:16].replace("T", " ")
-        st.caption(f"✅ Latest model refresh: {finished} UTC")
 
 
 def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_min,

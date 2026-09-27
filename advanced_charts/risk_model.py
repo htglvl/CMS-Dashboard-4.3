@@ -943,6 +943,26 @@ def _train_and_save(progress_callback=None):
 # ---------------------------------------------------------------------------
 
 
+def publish_saved_model_predictions(progress_callback=None):
+    """Rebuild missing dashboard outputs using the persisted models, without fitting."""
+    progress = progress_callback or (lambda percent, message: None)
+    progress(5, "Loading existing risk models (no retraining)")
+    rf_model, xgb_model, xgb_le = load_models()
+    progress(15, "Building grid features for existing models")
+    outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
+    features = build_grid_features(outages)
+    features = assign_risk_labels(features, high_threshold=load_frozen_threshold())
+    features = features[features[FEATURE_COLS].sum(axis=1) > 0]
+    for index, (name, model, le) in enumerate([
+        ("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le),
+    ]):
+        progress(60 + index * 30, f"Publishing {name} predictions from saved model")
+        preds = predict_cells(model, features, le)
+        out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
+        _atomic_text_write(preds.to_csv(index=False), out_path)
+        log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Geospatial risk model for unplanned outages.")
     parser.add_argument("--predict", action="store_true", help="Load models and predict all cells.")
@@ -964,21 +984,7 @@ def main():
         return
 
     if args.predict:
-        rf_model, xgb_model, xgb_le = load_models()
-        outages = pd.read_csv(DATA_FILE, parse_dates=["incident_date_time"])
-        features = build_grid_features(outages)
-        # Reuse the production threshold so labels keep one consistent meaning
-        features = assign_risk_labels(features, high_threshold=load_frozen_threshold())
-
-        # Only keep cells with actual outage data
-        has_data = features[FEATURE_COLS].sum(axis=1) > 0
-        features = features[has_data]
-
-        for name, model, le in [("RandomForest", rf_model, None), ("XGBoost", xgb_model, xgb_le)]:
-            preds = predict_cells(model, features, le)
-            out_path = MODELS_DIR / f"predictions_{name.lower()}.csv"
-            preds.to_csv(out_path, index=False)
-            log.info("%s predictions saved to %s (%d cells)", name, out_path, len(preds))
+        publish_saved_model_predictions()
         return
 
     # --- Train with sliding-window temporal approach ---

@@ -69,22 +69,6 @@ st.markdown("""
     margin: 0.5rem 0;
 }
 
-.risk-skeleton {
-    padding: 1rem;
-    border: 1px solid rgba(128, 128, 128, 0.25);
-    border-radius: 0.6rem;
-    margin: 0.5rem 0 1rem 0;
-}
-.risk-skeleton-line {
-    height: 0.85rem;
-    margin: 0.55rem 0;
-    border-radius: 0.4rem;
-    background: linear-gradient(90deg, #e5e7eb 25%, #f4f4f5 50%, #e5e7eb 75%);
-    background-size: 200% 100%;
-    animation: risk-shimmer 1.4s infinite;
-}
-@keyframes risk-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-
 /* Make spinner full width */
 .stSpinner > div {
     position: relative !important;
@@ -320,7 +304,7 @@ def main():
         if training_started:
             filters["model_training_running"] = True
     except Exception as exc:
-        st.sidebar.warning(f"Could not schedule model refresh: {exc}")
+        print(f"[RISK] Could not schedule model refresh: {exc}")
     profiler.record("Render controls + schedule model", profile_phase)
 
     # ── Auto-refresh and periodic fetch ───────────────────────────────────
@@ -360,21 +344,6 @@ def main():
 
     with col1:
         st.subheader("Interactive Spatial Analysis", anchor=False)
-
-        if data["risk_predictions"].empty and filters["model_training_running"]:
-            st.markdown(
-                """
-                <div class="risk-skeleton">
-                  <strong>Risk predictions are being prepared in the background</strong>
-                  <div class="risk-skeleton-line" style="width:92%"></div>
-                  <div class="risk-skeleton-line" style="width:76%"></div>
-                  <div class="risk-skeleton-line" style="width:84%"></div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        elif data["risk_predictions"].empty:
-            st.info("Risk predictions are not available yet. Use ‘Retrain Risk Models’ to start the background worker.")
 
         # Create map with pin (if previously clicked)
         profile_phase = profiler.start_phase()

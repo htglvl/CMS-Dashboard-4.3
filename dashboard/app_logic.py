@@ -154,8 +154,10 @@ def load_monthly_tenders(geojson_path: str, _file_mtime: float = 0):
 # ── Risk model helpers (cached) ──────────────────────────────────────────
 
 @st.cache_data
-def _load_published_risk_predictions(model_choice: str, _prediction_mtime: float):
+def _load_published_risk_predictions(model_choice: str, prediction_version: float):
     """Read only a worker-published result; never train inside Streamlit."""
+    # Streamlit excludes underscore-prefixed arguments from its cache key.
+    # Include the publication version so an initially missing CSV is reloaded.
     from advanced_charts.training_service import prediction_path
 
     path = prediction_path(model_choice)

@@ -15,6 +15,19 @@ from advanced_charts.training_service import MODELS_DIR, STATUS_PATH, _write_sta
 LOCK_PATH = MODELS_DIR / "training.lock"
 
 
+def _prepare_predictions(force: bool, publish) -> None:
+    from advanced_charts import risk_model
+    from advanced_charts.training_service import PREDICTION_PATHS
+
+    risk_model.invalidate_features_cache()
+    missing_predictions = any(not path.exists() for path in PREDICTION_PATHS.values())
+    saved_models_exist = risk_model.RF_MODEL_PATH.exists() and risk_model.XGB_MODEL_PATH.exists()
+    if not force and missing_predictions and saved_models_exist:
+        risk_model.publish_saved_model_predictions(progress_callback=publish)
+    else:
+        risk_model._train_and_save(progress_callback=publish)
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -63,11 +76,8 @@ def main() -> int:
         })
 
     try:
-        publish(1, "Starting isolated training process")
-        from advanced_charts.risk_model import _train_and_save, invalidate_features_cache
-
-        invalidate_features_cache()
-        _train_and_save(progress_callback=publish)
+        publish(1, "Starting isolated risk prediction worker")
+        _prepare_predictions(args.force, publish)
         # Recommendations are derived from risk predictions, so make the web
         # process rebuild them on its next lightweight refresh.
         from advanced_charts.recommendation_engine import invalidate_report_cache
