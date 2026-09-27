@@ -328,9 +328,8 @@ def create_duration_frequency_pie(site_outages: pd.DataFrame, site_name: str):
 
 def create_risk_assessment_chart(site_outages: pd.DataFrame, site_name: str, scores: dict):
     """Radar chart of normalised risk metrics for *site_name*."""
-    cached = _get_cached(site_name, "risk_radar")
-    if cached is not None:
-        return cached
+    # This small chart is cheap to rebuild. A name-only cache would reuse old
+    # scores when filters change or two nearby clicks share a rounded label.
     if site_outages.empty or not scores:
         return _empty_chart("No risk data available")
 
@@ -363,5 +362,4 @@ def create_risk_assessment_chart(site_outages: pd.DataFrame, site_name: str, sco
         showlegend=True,
         height=400
     )
-    _set_cached(site_name, "risk_radar", fig)
     return fig

@@ -149,6 +149,7 @@ def main():
     base_url = sync_cms_api(config)
 
     # Write updated config
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
 

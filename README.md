@@ -46,6 +46,13 @@ An interactive dashboard for analysing unplanned power outages across the Electr
    run_dashboard.bat
    ```
 
+   The launcher also deploys the Cloudflare Worker proxy using the `CF_*`
+   credentials in `.env`, starts the tunnel, and checks public readiness.
+   Share the permanent address shown in the launcher and saved in
+   `worker_url.txt`; it stays in visitors' address bars. The tunnel manager
+   copies this permanent address to the clipboard. See
+   [Cloudflare deployment](cloudflare/README.md) for required token permissions.
+
 ### OpenClaw (Optional)
 
 If you want AI chat integration:
@@ -141,6 +148,10 @@ pressed), Streamlit launches `risk_training_worker.py` and immediately keeps
 rendering with the last complete prediction CSV. Progress is shown in the
 sidebar; new models and predictions replace the old artifacts atomically only
 after each output is complete.
+Training progress refreshes in an isolated sidebar fragment, so it does not
+restart map rendering every two seconds. A completed training run triggers one
+dashboard refresh to load the new predictions. Windows worker checks use a
+process handle rather than sending a signal to the worker.
 
 The latest server-side load profile is available in the collapsed **Load
 profiler (last run)** sidebar panel and is persisted to
@@ -150,10 +161,11 @@ component handoff. Browser-side map tile downloads and paint time are outside
 this server profile.
 
 For continuously running deployments, `run_dashboard.bat` starts its own
-minimized cache-prewarmer loop. It warms the dashboard immediately and then
-every 24 hours. Each headless Chrome/Edge session exits after the page has
-executed; the lightweight batch scheduler remains until the dashboard is
-stopped, when it is terminated with the other services.
+hidden cache prewarmer (`dashboard_prewarm.ps1`). It warms the dashboard immediately
+and then every 24 hours. A per-project mutex permits only one scheduler, and
+browser runs are sequential with a two-minute timeout. The scheduler exits when
+its launcher closes or the stop action signals it. Diagnostics are written to
+`logs/dashboard-prewarm.log`.
 
 ---
 

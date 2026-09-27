@@ -9,7 +9,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from advanced_charts.training_service import MODELS_DIR, STATUS_PATH, _write_status
+from advanced_charts.training_service import MODELS_DIR, STATUS_PATH, _write_status, _pid_is_alive
 
 
 LOCK_PATH = MODELS_DIR / "training.lock"
@@ -26,7 +26,11 @@ def _acquire_lock() -> bool:
     except FileExistsError:
         try:
             age = time.time() - LOCK_PATH.stat().st_mtime
-            if age > 24 * 3600:
+            owner = LOCK_PATH.read_text(encoding="utf-8").strip()
+            # Allow time for a new owner to write its PID. Recover locks left
+            # behind by a terminated worker, but never evict a live trainer.
+            stale = age > 10 and owner.isdigit() and not _pid_is_alive(owner)
+            if stale or (age > 24 * 3600 and not owner.isdigit()):
                 LOCK_PATH.unlink()
                 return _acquire_lock()
         except OSError:

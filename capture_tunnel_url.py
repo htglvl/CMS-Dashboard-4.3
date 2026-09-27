@@ -1,10 +1,11 @@
 """Capture Cloudflare tunnel URL with auto-restart.
 
 Starts cloudflared, captures the trycloudflare.com URL, saves it to
-tunnel_url.txt, copies to clipboard, and updates Cloudflare Workers KV.
+tunnel_url.txt and updates Cloudflare Workers KV. Only the permanent Worker
+address is copied to the clipboard.
 
 Restarts every RESTART_INTERVAL (12h) or on failure.  The permanent
-redirect at https://cms.cms-tunnel-redirect.workers.dev/ always points
+proxy at https://cms.cms-tunnel-redirect.workers.dev/ always points
 to the latest tunnel URL via KV.
 """
 
@@ -13,6 +14,7 @@ import re
 import sys
 import time
 import subprocess
+from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
@@ -32,7 +34,7 @@ def update_cloudflare_kv(url):
 
     if not all([token, account_id, namespace_id]):
         print("Cloudflare KV env vars not set, skipping.", file=sys.stderr)
-        return
+        return False
 
     try:
         resp = requests.put(
@@ -44,10 +46,12 @@ def update_cloudflare_kv(url):
         )
         if resp.status_code == 200:
             print("Updated Cloudflare KV with new tunnel URL.", file=sys.stderr)
+            return True
         else:
             print(f"Cloudflare KV update failed ({resp.status_code}): {resp.text}", file=sys.stderr)
     except Exception as e:
         print(f"Failed to update Cloudflare KV: {e}", file=sys.stderr)
+    return False
 
 def start_cloudflared():
     """Spawn a cloudflared quick-tunnel process."""
@@ -90,12 +94,18 @@ def save_and_notify(url):
     with open("tunnel_url.txt", "w") as f:
         f.write(url)
 
-    subprocess.run(["clip"], input=url.encode(), check=True)
-
-    print(f"\nTunnel URL: {url}", file=sys.stderr)
-    print(f"Saved to: tunnel_url.txt", file=sys.stderr)
-    print(f"Copied to clipboard!", file=sys.stderr)
-    update_cloudflare_kv(url)
+    print("Internal tunnel address saved to tunnel_url.txt (do not share).", file=sys.stderr)
+    published = update_cloudflare_kv(url)
+    public_file = Path(__file__).resolve().parent / "worker_url.txt"
+    if public_file.exists():
+        public_url = public_file.read_text(encoding="utf-8").strip()
+        print(f"Permanent dashboard address: {public_url}", file=sys.stderr)
+        try:
+            subprocess.run(["clip"], input=public_url.encode(), check=True)
+            print("Permanent address copied to clipboard.", file=sys.stderr)
+        except (OSError, subprocess.CalledProcessError):
+            print("Could not copy address; use worker_url.txt.", file=sys.stderr)
+    return published
 
 def run_tunnel():
     """Main loop: start tunnel, monitor, restart every 12h or on failure."""
@@ -115,13 +125,16 @@ def run_tunnel():
             time.sleep(RESTART_DELAY)
             continue
 
-        save_and_notify(url)
+        published = save_and_notify(url)
         restarts = 0  # reset on successful start
 
         # Monitor loop — health check + scheduled 12h restart
         last_health = time.time()
         started_at = time.time()
         while True:
+            # Retry a failed KV update without creating another temporary URL.
+            if not published:
+                published = update_cloudflare_kv(url)
             # 1. Has the process exited?
             if proc.poll() is not None:
                 print(f"\ncloudflared exited (code {proc.returncode}).", file=sys.stderr)

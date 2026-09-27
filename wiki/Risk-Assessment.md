@@ -6,7 +6,22 @@ This page explains how the dashboard calculates vulnerability scores and risk pr
 
 ## Overview
 
-Each charging site is evaluated across four dimensions, normalised to a 0-100 scale relative to all other sites under the current filters. The scores are visualised on a radar (spider) chart and combined into an overall vulnerability score.
+Each charging site or custom map location is evaluated across four dimensions,
+normalised against the charging-site reference ranges and clipped to 0-100.
+When a precomputed site cache exists, its global reference ranges are retained
+across filters. The scores are visualised on a radar chart and combined into an
+overall score.
+
+For a custom location, click the map and open **Risk Assessment** in the detail
+panel. The assessment uses outages within two miles of the clicked coordinates,
+after the current dashboard filters. The location is compared with the same
+reference ranges as existing charging sites; it is not added to that reference
+population. Changing filters recalculates the radar chart.
+
+If no matching outages exist, the tab explains that a score cannot be calculated.
+An empty result does not establish zero risk. This historical area assessment
+does not establish which electricity supply serves a proposed site, and is
+separate from the **Risk Prediction** model output.
 
 ---
 

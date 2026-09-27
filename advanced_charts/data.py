@@ -42,7 +42,9 @@ def outages_within_radius(outages_df, lat, lon, radius_km=BUFFER_KM):
 
 def _scale(value, min_val, max_val):
     """Min-max scale value to 0-100. Returns 50 when range is zero."""
-    return ((value - min_val) / (max_val - min_val) * 100) if max_val > min_val else 50.0
+    score = ((value - min_val) / (max_val - min_val) * 100) if max_val > min_val else 50.0
+    # Custom locations can fall outside the charging-site reference range.
+    return float(np.clip(score, 0, 100))
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +249,9 @@ class SiteData:
         """Precompute min/max for frequency, duration, impact, CV across all sites."""
         n_sites = len(self.charging_sites)
         if self.outages.empty or n_sites == 0:
-            return {k: (0, 1) for k in ('freq', 'duration', 'impact', 'cv')}
+            return {f"{metric}_{bound}": value
+                    for metric in ('freq', 'duration', 'impact', 'cv')
+                    for bound, value in (("min", 0), ("max", 1))}
 
         out_lat = np.radians(self.outages['latitude'].values)
         out_lon = np.radians(self.outages['longitude'].values)

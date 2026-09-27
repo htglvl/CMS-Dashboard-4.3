@@ -6,8 +6,15 @@ All data logic lives in ``dashboard/app_logic.py``.
 """
 
 import os
+import sys
 import time
 from pathlib import Path
+
+# Windows consoles and redirected logs may default to CP1252. Map labels and
+# diagnostic messages contain Unicode, so printing must never crash a session.
+for _stream in (sys.stdout, sys.stderr):
+    if callable(getattr(_stream, "reconfigure", None)):
+        _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 import numpy as np
 import pandas as pd
@@ -447,7 +454,15 @@ def main():
                         break
             print(f"[TENDER-DEBUG] click=({_click_lat:.4f}, {_click_lng:.4f}), biannual={_biannual_hit}, monthly={_monthly_hit}")
 
-        if _biannual_hit or _monthly_hit:
+        tender_click = (
+            round(_click_lat, 6), round(_click_lng, 6),
+            _biannual_hit, _monthly_hit, popup_html,
+        ) if (_biannual_hit or _monthly_hit) else None
+        if tender_click and tender_click != st.session_state.get("last_processed_tender_click"):
+            # Folium returns the last click again on the next rerun. Consume
+            # tender clicks once, just as we already do for other map clicks.
+            st.session_state.last_processed_tender_click = tender_click
+            st.session_state.last_processed_click = tender_click[:2]
             # Set pin and site label
             st.session_state.pin_lat = _click_lat
             st.session_state.pin_lng = _click_lng
@@ -479,7 +494,7 @@ def main():
             print(f"[TENDER-CLICK] biannual={_biannual_hit}, monthly={_monthly_hit}, chargepoint={_cp_match is not None}")
             st.rerun()
 
-        elif last_clicked or last_object:
+        elif not tender_click and (last_clicked or last_object):
             # Get coords from whichever is available
             if last_object:
                 click_lat = last_object['lat']
@@ -495,6 +510,7 @@ def main():
             print(f"[CLICK-DEBUG] current_click: {current_click}, last_processed: {last_processed}")
 
             if current_click != last_processed:
+                st.session_state.last_processed_tender_click = None
                 st.session_state.last_processed_click = current_click
 
                 result = process_map_click(map_data, data["charging_sites"])

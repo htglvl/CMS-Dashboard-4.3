@@ -43,6 +43,28 @@ def read_training_status() -> dict:
 
 def _pid_is_alive(pid) -> bool:
     try:
+        pid = int(pid)
+        if pid <= 0:
+            return False
+        if os.name == "nt":
+            # os.kill(pid, 0) uses TerminateProcess on Windows: it is NOT a
+            # harmless existence check as it is on POSIX.
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel.WaitForSingleObject.restype = wintypes.DWORD
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel.CloseHandle.restype = wintypes.BOOL
+            handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
+                return ctypes.get_last_error() == 5  # access denied: process exists
+            try:
+                return kernel.WaitForSingleObject(handle, 0) == 258  # WAIT_TIMEOUT
+            finally:
+                kernel.CloseHandle(handle)
         os.kill(int(pid), 0)
         return True
     except (OSError, TypeError, ValueError):

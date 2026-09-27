@@ -244,15 +244,8 @@ def render_sidebar(charging_sites, outages):
     from advanced_charts.training_service import normalise_training_status
     training_status = normalise_training_status()
     training_state = training_status.get("state", "idle")
-    if training_state in {"queued", "running"}:
-        progress = int(training_status.get("progress", 0))
-        st.sidebar.progress(progress, text=training_status.get("message", "Training risk models"))
-        st.sidebar.caption("The dashboard remains available while the worker runs.")
-    elif training_state == "failed":
-        st.sidebar.error(f"Model training failed: {training_status.get('message', 'Unknown error')}")
-    elif training_state == "completed":
-        finished = str(training_status.get("finished_at", ""))[:16].replace("T", " ")
-        st.sidebar.caption(f"✅ Latest model refresh: {finished} UTC")
+    with st.sidebar:
+        render_training_progress()
 
     return {
         "years": years,
@@ -275,6 +268,27 @@ def render_sidebar(charging_sites, outages):
     }
 
 
+@st.fragment(run_every="2s")
+def render_training_progress():
+    """Refresh only progress; reload predictions once a completed run is seen."""
+    from advanced_charts.training_service import normalise_training_status
+    training_status = normalise_training_status()
+    training_state = training_status.get("state", "idle")
+    previous_state = st.session_state.get("_observed_training_state")
+    st.session_state["_observed_training_state"] = training_state
+    if previous_state in {"queued", "running"} and training_state == "completed":
+        st.rerun()
+    if training_state in {"queued", "running"}:
+        progress = int(training_status.get("progress", 0))
+        st.progress(progress, text=training_status.get("message", "Training risk models"))
+        st.caption("The dashboard remains available while the worker runs.")
+    elif training_state == "failed":
+        st.error(f"Model training failed: {training_status.get('message', 'Unknown error')}")
+    elif training_state == "completed":
+        finished = str(training_status.get("finished_at", ""))[:16].replace("T", " ")
+        st.caption(f"✅ Latest model refresh: {finished} UTC")
+
+
 def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_min,
                       model_training_running=False):
     """Configure auto-refresh timers."""
@@ -287,8 +301,8 @@ def setup_autorefresh(refresh_interval_min, show_live_incidents, live_refresh_mi
             interval=live_refresh_min * 60 * 1000,
             key="live_incidents_refresh",
         )
-    if model_training_running:
-        st_autorefresh(interval=2000, key="risk_training_progress_refresh")
+    # Training progress has its own fragment; never interrupt map construction
+    # with a two-second full-app rerun.
 
 
 def maybe_fetch_outage_data(refresh_interval_min):

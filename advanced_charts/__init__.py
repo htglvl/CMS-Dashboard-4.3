@@ -46,9 +46,10 @@ class DynamicChartGenerator:
         """Return outages within *buffer_radius_km* of *site_name* and the site row."""
         return self._data.get_site_outages(site_name, buffer_radius_km)
 
-    def get_risk_scores(self, site_name: str) -> dict:
+    def get_risk_scores(self, site_name: str, site_outages=None) -> dict:
         """Return normalised risk scores dict for *site_name*."""
-        site_outages, _ = self._data.get_site_outages(site_name)
+        if site_outages is None:
+            site_outages, _ = self._data.get_site_outages(site_name)
         return self._data.compute_risk_metrics(site_outages)
 
     # -- Chart factories (delegates to standalone functions) ----------------
@@ -65,8 +66,9 @@ class DynamicChartGenerator:
     def create_duration_frequency_pie(self, site_outages: pd.DataFrame, site_name: str):
         return create_duration_frequency_pie(site_outages, site_name)
 
-    def create_risk_assessment_chart(self, site_name: str, is_dark: bool = False):
-        site_outages, _ = self._data.get_site_outages(site_name)
+    def create_risk_assessment_chart(self, site_name: str, is_dark: bool = False, site_outages=None):
+        if site_outages is None:
+            site_outages, _ = self._data.get_site_outages(site_name)
         scores = self._data.compute_risk_metrics(site_outages)
         return create_risk_assessment_chart(site_outages, site_name, scores)
 

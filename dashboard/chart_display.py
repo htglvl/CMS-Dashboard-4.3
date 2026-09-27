@@ -102,7 +102,7 @@ def display_dynamic_charts(site_name, charging_sites, filtered_outages, is_dark=
         t0 = _ts("Tab: Customer Impact", t0)
 
     with _tab_risk:
-        render_risk_assessment(chart_generator, site_name)
+        render_risk_assessment(chart_generator, site_name, site_outages=site_outages)
         t0 = _ts("Tab: Risk Assessment", t0)
 
     with _tab_insg:
